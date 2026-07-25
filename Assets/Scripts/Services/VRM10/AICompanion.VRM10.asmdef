@@ -7,7 +7,9 @@
         "UniGLTF.Utils",
         "VRM10",
         "VRM",
-        "UniHumanoid"
+        "UniHumanoid",
+        "Unity.Timeline",
+        "Unity.InputSystem"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

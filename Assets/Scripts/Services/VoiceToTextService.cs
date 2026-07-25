@@ -191,7 +191,7 @@ namespace AICompanion.Services
                     {
                         Debug.Log($"[VoiceToTextService] Transcribed speech: '{text}'");
                         // Trigger message processing via CompanionController
-                        var controller = FindFirstObjectByType<CompanionController>();
+                        var controller = FindAnyObjectByType<CompanionController>();
                         if (controller != null)
                         {
                             controller.ProcessVoiceInput(text);
