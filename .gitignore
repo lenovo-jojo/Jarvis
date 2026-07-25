@@ -29,3 +29,7 @@ Thumbs.db
 
 # Packages lock (optional – some teams commit this)
 # Packages/packages-lock.json
+
+# Copilot worktrees / nested repos
+copilot-worktrees/
+Jarvis-*/
