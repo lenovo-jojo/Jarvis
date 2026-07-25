@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.EventSystems;
 
 namespace AICompanion.Services
 {
@@ -81,9 +82,11 @@ namespace AICompanion.Services
             {
                 bool leftPressed = Mouse.current.leftButton.isPressed;
                 bool leftPressedThisFrame = Mouse.current.leftButton.wasPressedThisFrame;
+                bool rightPressed = Mouse.current.rightButton.isPressed;
                 Vector2 mouseDelta = Mouse.current.delta.ReadValue();
                 float scroll = Mouse.current.scroll.ReadValue().y;
                 Vector2 mousePos = Mouse.current.position.ReadValue();
+                bool pointerOverUi = EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
 
                 if (leftPressedThisFrame)
                 {
@@ -94,8 +97,10 @@ namespace AICompanion.Services
                     isOrbitBlockedByAvatarDrag = false;
                 }
 
-                // Handle Orbit Rotation on Left Click + Drag
-                if (leftPressed && !isOrbitBlockedByAvatarDrag && mouseDelta.sqrMagnitude > 0.01f)
+                bool orbitDragPressed = rightPressed || (leftPressed && !isOrbitBlockedByAvatarDrag);
+
+                // Handle Orbit Rotation with drag (right mouse always, left mouse unless dragging avatar)
+                if (!pointerOverUi && orbitDragPressed && mouseDelta.sqrMagnitude > 0.01f)
                 {
                     orbitYaw += mouseDelta.x * rotateSensitivity;
                     orbitPitch -= mouseDelta.y * rotateSensitivity;
@@ -104,7 +109,7 @@ namespace AICompanion.Services
                 }
 
                 // Handle Scroll Zooming
-                if (Mathf.Abs(scroll) > 0.01f)
+                if (!pointerOverUi && Mathf.Abs(scroll) > 0.01f)
                 {
                     zoomOffset -= scroll * zoomSensitivity;
                     zoomOffset = Mathf.Clamp(zoomOffset, minZoom, maxZoom);

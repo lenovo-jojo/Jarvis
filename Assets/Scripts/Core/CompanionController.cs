@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using AICompanion.Core;
 using AICompanion.Services;
@@ -21,6 +22,8 @@ namespace AICompanion.Core
         private bool isSpeaking;
         private bool useWebcamContext;
         private bool useScreenContext;
+        private readonly List<string> availablePoses = new List<string>();
+        private int selectedPoseIndex = -1;
 
         private void Awake()
         {
@@ -73,8 +76,22 @@ namespace AICompanion.Core
             // Populate Pose Dropdown
             if (vrmService != null)
             {
+                availablePoses.Clear();
                 var poses = vrmService.GetAvailablePoses();
-                companionUI.PopulatePoseDropdown(poses);
+                if (poses != null)
+                {
+                    availablePoses.AddRange(poses);
+                }
+                companionUI.PopulatePoseDropdown(availablePoses);
+
+                if (availablePoses.Count == 0)
+                {
+                    companionUI.AppendLog("System", "No poses found in Assets/OptionalContent/Solo Scenes.");
+                }
+                else
+                {
+                    companionUI.AppendLog("System", $"Loaded {availablePoses.Count} poses. Click Next Pose or press P.");
+                }
             }
 
             // Sync initial state
@@ -86,18 +103,40 @@ namespace AICompanion.Core
 
         private void HandleCyclePose()
         {
-            if (vrmService != null)
+            if (vrmService == null)
             {
-                vrmService.CyclePose();
+                return;
             }
+
+            if (availablePoses.Count == 0)
+            {
+                companionUI.AppendLog("System", "No poses available.");
+                return;
+            }
+
+            selectedPoseIndex = (selectedPoseIndex + 1) % availablePoses.Count;
+            vrmService.SetPose(selectedPoseIndex);
+            companionUI.SetSelectedPoseInDropdown(selectedPoseIndex);
+            companionUI.AppendLog("System", $"Pose: {availablePoses[selectedPoseIndex]}");
         }
 
         private void HandlePoseSelected(int index)
         {
-            if (vrmService != null)
+            if (vrmService == null)
             {
-                vrmService.SetPose(index);
+                return;
             }
+
+            if (availablePoses.Count == 0)
+            {
+                companionUI.AppendLog("System", "No poses available.");
+                return;
+            }
+
+            selectedPoseIndex = Mathf.Clamp(index, 0, availablePoses.Count - 1);
+            vrmService.SetPose(selectedPoseIndex);
+            companionUI.SetSelectedPoseInDropdown(selectedPoseIndex);
+            companionUI.AppendLog("System", $"Pose: {availablePoses[selectedPoseIndex]}");
         }
 
         private void HandleAnimationToggle(bool enabled)
@@ -253,6 +292,7 @@ namespace AICompanion.Core
                 onLoaded: (avatar) =>
                 {
                     companionUI.AppendLog("System", "VRM avatar imported successfully!");
+                    selectedPoseIndex = -1;
                 },
                 onError: (error) =>
                 {

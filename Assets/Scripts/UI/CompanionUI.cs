@@ -48,8 +48,11 @@ namespace AICompanion.UI
         public event Action<int> OnPoseSelected;
 
         public bool IsMicEnabled => micToggle != null && micToggle.isOn;
+        public bool IsInputFocused => messageInputField != null && messageInputField.isFocused;
 
         private ServiceConfig currentConfig;
+        private Button runtimePoseButton;
+        private static readonly Rect PoseFallbackRect = new Rect(16f, 16f, 180f, 42f);
 
         private void Start()
         {
@@ -131,7 +134,33 @@ namespace AICompanion.UI
 
         private Button CreateRuntimePoseButton()
         {
-            Transform parent = importVrmButton != null ? importVrmButton.transform.parent : transform;
+            Transform parent = null;
+            if (importVrmButton != null &&
+                importVrmButton.transform != null &&
+                importVrmButton.transform.parent != null &&
+                importVrmButton.transform.parent.gameObject.activeInHierarchy)
+            {
+                parent = importVrmButton.transform.parent;
+            }
+
+            if (parent == null)
+            {
+                Canvas[] canvases = UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+                foreach (Canvas canvas in canvases)
+                {
+                    if (canvas != null && canvas.isActiveAndEnabled)
+                    {
+                        parent = canvas.transform;
+                        break;
+                    }
+                }
+            }
+
+            if (parent == null)
+            {
+                parent = transform;
+            }
+
             if (parent == null)
             {
                 return null;
@@ -155,11 +184,11 @@ namespace AICompanion.UI
             }
             else
             {
-                poseRect.anchorMin = new Vector2(0.5f, 0.5f);
-                poseRect.anchorMax = new Vector2(0.5f, 0.5f);
-                poseRect.pivot = new Vector2(0.5f, 0.5f);
-                poseRect.sizeDelta = new Vector2(220f, 40f);
-                poseRect.anchoredPosition = new Vector2(0f, -260f);
+                poseRect.anchorMin = new Vector2(0f, 0f);
+                poseRect.anchorMax = new Vector2(0f, 0f);
+                poseRect.pivot = new Vector2(0f, 0f);
+                poseRect.sizeDelta = new Vector2(180f, 42f);
+                poseRect.anchoredPosition = new Vector2(16f, 16f);
             }
 
             Image poseImage = poseButtonGo.GetComponent<Image>();
@@ -209,7 +238,38 @@ namespace AICompanion.UI
                 }
             }
 
+            runtimePoseButton = poseButton;
             return poseButton;
+        }
+
+        private void Update()
+        {
+            if (UnityEngine.InputSystem.Keyboard.current == null)
+            {
+                return;
+            }
+
+            if (!IsInputFocused && UnityEngine.InputSystem.Keyboard.current.pKey.wasPressedThisFrame)
+            {
+                OnCyclePoseRequested?.Invoke();
+            }
+        }
+
+        private void OnGUI()
+        {
+            bool hasVisiblePoseControl =
+                (poseDropdown != null && poseDropdown.gameObject.activeInHierarchy) ||
+                (runtimePoseButton != null && runtimePoseButton.gameObject.activeInHierarchy);
+
+            if (hasVisiblePoseControl || IsInputFocused)
+            {
+                return;
+            }
+
+            if (GUI.Button(PoseFallbackRect, "Next Pose"))
+            {
+                OnCyclePoseRequested?.Invoke();
+            }
         }
 
         public void PopulatePoseDropdown(System.Collections.Generic.List<string> options)

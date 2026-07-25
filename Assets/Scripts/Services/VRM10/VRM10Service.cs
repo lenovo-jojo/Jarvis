@@ -401,6 +401,25 @@ namespace AICompanion.Services
             DestroyActiveLightProps();
             DestroyActiveVrma();
 
+            // Prefer static VPD pose data when available. This is more robust across
+            // mixed avatar rigs and avoids runtime control-rig conflicts from some VRMA packs.
+            if (poseHandler != null &&
+                cp.muscles != null &&
+                cp.muscles.Length > 0)
+            {
+                HumanPose hp = new HumanPose
+                {
+                    bodyPosition = cp.bodyPosition,
+                    bodyRotation = cp.bodyRotation,
+                    muscles = cp.muscles
+                };
+
+                poseHandler.SetHumanPose(ref hp);
+                Debug.Log($"[VRMService] Applied VPD pose: {cp.name}");
+                ApplyPoseSceneContext(cp);
+                return;
+            }
+
             if (!string.IsNullOrEmpty(cp.vrmaPath) &&
                 File.Exists(cp.vrmaPath))
             {
@@ -456,27 +475,8 @@ namespace AICompanion.Services
                 }
             }
 
-            // Fallback for pose folders that contain VPD but no usable VRMA.
-            if (poseHandler != null &&
-                cp.muscles != null &&
-                cp.muscles.Length > 0)
-            {
-                HumanPose hp = new HumanPose
-                {
-                    bodyPosition = cp.bodyPosition,
-                    bodyRotation = cp.bodyRotation,
-                    muscles = cp.muscles
-                };
-
-                poseHandler.SetHumanPose(ref hp);
-                Debug.Log($"[VRMService] Applied VPD fallback: {cp.name}");
-            }
-            else
-            {
-                Debug.LogWarning(
-                    $"[VRMService] Pose '{cp.name}' has no usable VRMA " +
-                    "or compatible HumanPose fallback.");
-            }
+            Debug.LogWarning(
+                $"[VRMService] Pose '{cp.name}' has no usable VPD data or compatible VRMA animation.");
 
             ApplyPoseSceneContext(cp);
         }
