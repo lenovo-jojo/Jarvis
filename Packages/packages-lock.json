@@ -261,6 +261,15 @@
       },
       "url": "https://package.openupm.com"
     },
+    "com.vrmc.vrm": {
+      "version": "0.128.1",
+      "depth": 0,
+      "source": "registry",
+      "dependencies": {
+        "com.vrmc.gltf": "0.128.1"
+      },
+      "url": "https://package.openupm.com"
+    },
     "com.unity.modules.accessibility": {
       "version": "1.0.0",
       "depth": 0,
