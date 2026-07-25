@@ -58,19 +58,27 @@ namespace AICompanion.UI
             PopulateSettingsUI();
 
             // Setup listeners
-            sendButton.onClick.AddListener(HandleSend);
-            messageInputField.onSubmit.AddListener(delegate { HandleSend(); });
-            openSettingsButton.onClick.AddListener(() => settingsPanel.SetActive(true));
-            closeSettingsButton.onClick.AddListener(HandleCloseSettings);
-            importVrmButton.onClick.AddListener(HandleImportVRM);
-            cyclePoseButton.onClick.AddListener(() => OnCyclePoseRequested?.Invoke());
+            if (sendButton != null)
+                sendButton.onClick.AddListener(HandleSend);
+            if (messageInputField != null)
+                messageInputField.onSubmit.AddListener(delegate { HandleSend(); });
+            if (openSettingsButton != null)
+                openSettingsButton.onClick.AddListener(() => settingsPanel.SetActive(true));
+            if (closeSettingsButton != null)
+                closeSettingsButton.onClick.AddListener(HandleCloseSettings);
+            if (importVrmButton != null)
+                importVrmButton.onClick.AddListener(HandleImportVRM);
+            if (cyclePoseButton != null)
+                cyclePoseButton.onClick.AddListener(() => OnCyclePoseRequested?.Invoke());
             if (poseDropdown != null)
             {
                 poseDropdown.onValueChanged.AddListener((val) => OnPoseSelected?.Invoke(val));
             }
 
-            webcamToggle.onValueChanged.AddListener((val) => OnWebcamToggleChanged?.Invoke(val));
-            screenToggle.onValueChanged.AddListener((val) => OnScreenToggleChanged?.Invoke(val));
+            if (webcamToggle != null)
+                webcamToggle.onValueChanged.AddListener((val) => OnWebcamToggleChanged?.Invoke(val));
+            if (screenToggle != null)
+                screenToggle.onValueChanged.AddListener((val) => OnScreenToggleChanged?.Invoke(val));
             if (animationToggle != null)
             {
                 animationToggle.onValueChanged.AddListener((val) => OnAnimationToggleChanged?.Invoke(val));
@@ -80,7 +88,8 @@ namespace AICompanion.UI
                 micToggle.onValueChanged.AddListener((val) => OnMicToggleChanged?.Invoke(val));
             }
 
-            settingsPanel.SetActive(false);
+            if (settingsPanel != null)
+                settingsPanel.SetActive(false);
             AppendLog("System", "Companion Initialized. Type a message or import a VRM to start!");
             UpdateConnectionStatus();
         }
@@ -104,12 +113,12 @@ namespace AICompanion.UI
 
         private void PopulateSettingsUI()
         {
-            llmBaseUrlInput.text = currentConfig.llmBaseUrl;
-            llmApiKeyInput.text = currentConfig.llmApiKey;
-            llmModelNameInput.text = currentConfig.llmModelName;
-            elevenLabsApiKeyInput.text = currentConfig.elevenLabsApiKey;
-            elevenLabsVoiceIdInput.text = currentConfig.elevenLabsVoiceId;
-            localModeToggle.isOn = currentConfig.isLocalMode;
+            if (llmBaseUrlInput != null) llmBaseUrlInput.text = currentConfig.llmBaseUrl;
+            if (llmApiKeyInput != null) llmApiKeyInput.text = currentConfig.llmApiKey;
+            if (llmModelNameInput != null) llmModelNameInput.text = currentConfig.llmModelName;
+            if (elevenLabsApiKeyInput != null) elevenLabsApiKeyInput.text = currentConfig.elevenLabsApiKey;
+            if (elevenLabsVoiceIdInput != null) elevenLabsVoiceIdInput.text = currentConfig.elevenLabsVoiceId;
+            if (localModeToggle != null) localModeToggle.isOn = currentConfig.isLocalMode;
         }
 
         private void HandleCloseSettings()
