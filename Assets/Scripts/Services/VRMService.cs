@@ -17,15 +17,13 @@ namespace AICompanion.Services
         private void Awake()
         {
 #if JARVIS_VRM10 && JARVIS_VRM0
-            // Deterministic conflict resolution: VRM 1.0 always wins when both symbols are present.
             Debug.LogWarning("[VRMService] Both JARVIS_VRM10 and JARVIS_VRM0 are defined. Defaulting to VRM 1.0 backend.");
 #endif
 
 #if JARVIS_VRM10
             if (!TryAttachBackend(Vrm10BackendTypeName))
             {
-                Debug.LogWarning("[VRMService] JARVIS_VRM10 is enabled but VRM10 backend was not found. Falling back to no-op backend.");
-                implementation = gameObject.AddComponent<VRMNoopService>();
+                Debug.LogWarning("[VRMService] JARVIS_VRM10 is enabled but VRM10 backend was not found at runtime.");
             }
 #elif JARVIS_VRM0
             implementation = gameObject.AddComponent<VRM0Service>();

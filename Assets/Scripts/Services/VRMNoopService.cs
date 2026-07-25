@@ -51,4 +51,7 @@ namespace AICompanion.Services
         }
     }
 }
+#else
+// VRMNoopService is not needed when a VRM backend is active.
+// This empty region ensures the file compiles cleanly under all define combinations.
 #endif
