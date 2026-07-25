@@ -1,4 +1,3 @@
-#if !JARVIS_VRM10 && !JARVIS_VRM0
 using System;
 using System.Collections.Generic;
 using AICompanion.Core;
@@ -7,7 +6,8 @@ using UnityEngine;
 namespace AICompanion.Services
 {
     /// <summary>
-    /// Safe fallback when no VRM package/mode is configured.
+    /// Safe fallback when no VRM backend is active.
+    /// Always compiled so scene references are never broken.
     /// </summary>
     public class VRMNoopService : MonoBehaviour, IVRMService
     {
@@ -15,7 +15,9 @@ namespace AICompanion.Services
 
         private void Start()
         {
+#if !JARVIS_VRM10 && !JARVIS_VRM0
             Debug.LogWarning("[VRMService] No VRM backend enabled. Define JARVIS_VRM10 (recommended) or JARVIS_VRM0.");
+#endif
         }
 
         public void LoadVRM(string filePath, Action<GameObject> onLoaded, Action<string> onError)
@@ -25,33 +27,14 @@ namespace AICompanion.Services
             onError?.Invoke(message);
         }
 
-        public void SetExpression(string expressionName, float value)
-        {
-        }
+        public void SetExpression(string expressionName, float value) { }
+        public void PlayMouthVolume(float volume) { }
+        public void SetAnimationEnabled(bool enabled) { }
+        public void CyclePose() { }
 
-        public void PlayMouthVolume(float volume)
-        {
-        }
+        public List<string> GetAvailablePoses() => EmptyPoses;
 
-        public void SetAnimationEnabled(bool enabled)
-        {
-        }
-
-        public void CyclePose()
-        {
-        }
-
-        public List<string> GetAvailablePoses()
-        {
-            return EmptyPoses;
-        }
-
-        public void SetPose(int index)
-        {
-        }
+        public void SetPose(int index) { }
     }
 }
-#else
-// VRMNoopService is not needed when a VRM backend is active.
-// This empty region ensures the file compiles cleanly under all define combinations.
-#endif
+
