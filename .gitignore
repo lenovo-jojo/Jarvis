@@ -1,0 +1,31 @@
+# Unity generated
+Library/
+Temp/
+Logs/
+obj/
+Build/
+Builds/
+UserSettings/
+MemoryCaptures/
+
+# Unity-generated meta files (keep .meta files for tracked assets)
+# Unity auto-generates these, but they're needed for GUIDs — keep them
+
+# VS / Rider project files
+*.csproj
+*.sln
+*.suo
+*.user
+*.pidb
+*.booproj
+ExportedObj/
+.vs/
+.idea/
+
+# OS
+.DS_Store
+.DS_Store?
+Thumbs.db
+
+# Packages lock (optional – some teams commit this)
+# Packages/packages-lock.json
