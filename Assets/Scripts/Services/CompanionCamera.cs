@@ -25,6 +25,7 @@ namespace AICompanion.Services
         private float orbitYaw = 180f; // Start at 180 degrees to face the avatar (who is rotated by 180)
         private float orbitPitch = 10f; // Slightly angled down
         private float zoomOffset = 0f;
+        private bool isOrbitBlockedByAvatarDrag;
 
         private void Awake()
         {
@@ -79,11 +80,22 @@ namespace AICompanion.Services
             if (Mouse.current != null)
             {
                 bool leftPressed = Mouse.current.leftButton.isPressed;
+                bool leftPressedThisFrame = Mouse.current.leftButton.wasPressedThisFrame;
                 Vector2 mouseDelta = Mouse.current.delta.ReadValue();
                 float scroll = Mouse.current.scroll.ReadValue().y;
+                Vector2 mousePos = Mouse.current.position.ReadValue();
+
+                if (leftPressedThisFrame)
+                {
+                    isOrbitBlockedByAvatarDrag = IsPointerOverAvatar(targetGo, mousePos);
+                }
+                else if (!leftPressed)
+                {
+                    isOrbitBlockedByAvatarDrag = false;
+                }
 
                 // Handle Orbit Rotation on Left Click + Drag
-                if (leftPressed && mouseDelta.sqrMagnitude > 0.01f)
+                if (leftPressed && !isOrbitBlockedByAvatarDrag && mouseDelta.sqrMagnitude > 0.01f)
                 {
                     orbitYaw += mouseDelta.x * rotateSensitivity;
                     orbitPitch -= mouseDelta.y * rotateSensitivity;
@@ -98,6 +110,15 @@ namespace AICompanion.Services
                     zoomOffset = Mathf.Clamp(zoomOffset, minZoom, maxZoom);
                     isInteracting = true;
                 }
+            }
+
+            if (Keyboard.current != null && Keyboard.current.spaceKey.wasPressedThisFrame)
+            {
+                // Space quickly re-centers the camera framing on the avatar.
+                orbitYaw = 180f;
+                orbitPitch = 10f;
+                zoomOffset = 0f;
+                isInteracting = true;
             }
 
             // Calculate target distance after zoom
@@ -165,6 +186,17 @@ namespace AICompanion.Services
                 new Vector3(b.max.x, b.max.y, b.min.z),
                 new Vector3(b.max.x, b.max.y, b.max.z)
             };
+        }
+
+        private bool IsPointerOverAvatar(GameObject targetGo, Vector2 pointerPosition)
+        {
+            if (cam == null || targetGo == null)
+            {
+                return false;
+            }
+
+            Ray ray = cam.ScreenPointToRay(pointerPosition);
+            return Physics.Raycast(ray, out RaycastHit hit) && hit.transform.IsChildOf(targetGo.transform);
         }
     }
 }

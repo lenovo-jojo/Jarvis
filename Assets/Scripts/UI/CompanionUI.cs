@@ -56,6 +56,7 @@ namespace AICompanion.UI
             // Load configuration
             currentConfig = ServiceConfig.Load();
             PopulateSettingsUI();
+            ResolvePoseControls();
 
             // Setup listeners
             if (sendButton != null)
@@ -92,6 +93,123 @@ namespace AICompanion.UI
                 settingsPanel.SetActive(false);
             AppendLog("System", "Companion Initialized. Type a message or import a VRM to start!");
             UpdateConnectionStatus();
+        }
+
+        private void ResolvePoseControls()
+        {
+            if (cyclePoseButton == null)
+            {
+                Button[] buttons = UnityEngine.Object.FindObjectsByType<Button>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+                foreach (Button button in buttons)
+                {
+                    if (button != null && button.name.IndexOf("pose", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        cyclePoseButton = button;
+                        break;
+                    }
+                }
+            }
+
+            if (poseDropdown == null)
+            {
+                TMP_Dropdown[] dropdowns = UnityEngine.Object.FindObjectsByType<TMP_Dropdown>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+                foreach (TMP_Dropdown dropdown in dropdowns)
+                {
+                    if (dropdown != null && dropdown.name.IndexOf("pose", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        poseDropdown = dropdown;
+                        break;
+                    }
+                }
+            }
+
+            if (cyclePoseButton == null)
+            {
+                cyclePoseButton = CreateRuntimePoseButton();
+            }
+        }
+
+        private Button CreateRuntimePoseButton()
+        {
+            Transform parent = importVrmButton != null ? importVrmButton.transform.parent : transform;
+            if (parent == null)
+            {
+                return null;
+            }
+
+            GameObject poseButtonGo = new GameObject("RuntimePoseButton", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
+            RectTransform poseRect = poseButtonGo.GetComponent<RectTransform>();
+            poseRect.SetParent(parent, false);
+
+            if (importVrmButton != null)
+            {
+                RectTransform importRect = importVrmButton.GetComponent<RectTransform>();
+                if (importRect != null)
+                {
+                    poseRect.anchorMin = importRect.anchorMin;
+                    poseRect.anchorMax = importRect.anchorMax;
+                    poseRect.pivot = importRect.pivot;
+                    poseRect.sizeDelta = importRect.sizeDelta;
+                    poseRect.anchoredPosition = importRect.anchoredPosition + new Vector2(0f, -50f);
+                }
+            }
+            else
+            {
+                poseRect.anchorMin = new Vector2(0.5f, 0.5f);
+                poseRect.anchorMax = new Vector2(0.5f, 0.5f);
+                poseRect.pivot = new Vector2(0.5f, 0.5f);
+                poseRect.sizeDelta = new Vector2(220f, 40f);
+                poseRect.anchoredPosition = new Vector2(0f, -260f);
+            }
+
+            Image poseImage = poseButtonGo.GetComponent<Image>();
+            Button poseButton = poseButtonGo.GetComponent<Button>();
+            if (importVrmButton != null)
+            {
+                Image importImage = importVrmButton.GetComponent<Image>();
+                if (importImage != null)
+                {
+                    poseImage.sprite = importImage.sprite;
+                    poseImage.type = importImage.type;
+                    poseImage.color = importImage.color;
+                }
+
+                poseButton.transition = importVrmButton.transition;
+                poseButton.colors = importVrmButton.colors;
+                poseButton.spriteState = importVrmButton.spriteState;
+            }
+            else
+            {
+                poseImage.color = new Color(0.2f, 0.6f, 0.9f, 0.9f);
+            }
+
+            GameObject labelGo = new GameObject("Label", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
+            RectTransform labelRect = labelGo.GetComponent<RectTransform>();
+            labelRect.SetParent(poseButtonGo.transform, false);
+            labelRect.anchorMin = Vector2.zero;
+            labelRect.anchorMax = Vector2.one;
+            labelRect.offsetMin = Vector2.zero;
+            labelRect.offsetMax = Vector2.zero;
+
+            TextMeshProUGUI label = labelGo.GetComponent<TextMeshProUGUI>();
+            label.text = "Next Pose";
+            label.alignment = TextAlignmentOptions.Center;
+            label.fontSize = 22f;
+            label.color = Color.white;
+
+            if (importVrmButton != null)
+            {
+                TMP_Text importLabel = importVrmButton.GetComponentInChildren<TMP_Text>(true);
+                if (importLabel != null)
+                {
+                    label.font = importLabel.font;
+                    label.fontMaterial = importLabel.fontMaterial;
+                    label.fontSize = importLabel.fontSize;
+                    label.color = importLabel.color;
+                }
+            }
+
+            return poseButton;
         }
 
         public void PopulatePoseDropdown(System.Collections.Generic.List<string> options)

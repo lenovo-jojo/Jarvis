@@ -984,12 +984,9 @@ namespace AICompanion.Services
                 Debug.Log(
                     "[VRMService] VRM 1.0 character loaded successfully.");
 
+                // Start in neutral state. Poses are selected explicitly by the user.
+                currentPoseIndex = -1;
                 onLoaded?.Invoke(currentAvatarGo);
-
-                if (loadedOptionalPoses.Count > 0)
-                {
-                    SetPose(0);
-                }
             }
             catch (Exception ex)
             {
@@ -1285,4 +1282,3 @@ namespace AICompanion.Services
         }
     }
 }
-
