@@ -408,7 +408,8 @@ namespace AICompanion.Services
                 {
                     using GltfData data =
                         new AutoGltfFileParser(cp.vrmaPath).Parse();
-                    using var loader = new VrmAnimationImporter(data);
+                    var vrmaData = new VrmAnimationData(data);
+                    using var loader = new VrmAnimationImporter(vrmaData);
 
                     activeVrmaInstance = await loader.LoadAsync(
                         new RuntimeOnlyAwaitCaller());

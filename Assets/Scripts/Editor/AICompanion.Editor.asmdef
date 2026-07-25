@@ -1,0 +1,19 @@
+{
+    "name": "AICompanion.Editor",
+    "rootNamespace": "",
+    "references": [
+        "AICompanion",
+        "UniGLTF.Utils"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
