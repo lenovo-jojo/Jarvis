@@ -3,7 +3,14 @@
     "rootNamespace": "",
     "references": [
         "AICompanion",
-        "UniGLTF.Utils"
+        "UniGLTF",
+        "UniGLTF.Utils",
+        "VRM10",
+        "VRM",
+        "UniHumanoid",
+        "Unity.TextMeshPro",
+        "UnityEngine.UI",
+        "Unity.InputSystem"
     ],
     "includePlatforms": [
         "Editor"
