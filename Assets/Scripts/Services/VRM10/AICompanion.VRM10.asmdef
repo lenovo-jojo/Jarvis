@@ -1,0 +1,23 @@
+{
+    "name": "AICompanion.VRM10",
+    "rootNamespace": "",
+    "references": [
+        "AICompanion",
+        "UniGLTF",
+        "UniGLTF.Utils",
+        "VRM10",
+        "VRM",
+        "UniHumanoid"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "JARVIS_VRM10"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
