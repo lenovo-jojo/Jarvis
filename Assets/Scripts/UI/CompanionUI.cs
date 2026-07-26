@@ -133,7 +133,7 @@ namespace AICompanion.UI
         {
             if (cyclePoseButton == null)
             {
-                Button[] buttons = UnityEngine.Object.FindObjectsByType<Button>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+                Button[] buttons = UnityEngine.Object.FindObjectsByType<Button>(FindObjectsInactive.Include);
                 foreach (Button button in buttons)
                 {
                     if (button != null && button.name.IndexOf("pose", StringComparison.OrdinalIgnoreCase) >= 0)
@@ -146,7 +146,7 @@ namespace AICompanion.UI
 
             if (poseDropdown == null)
             {
-                TMP_Dropdown[] dropdowns = UnityEngine.Object.FindObjectsByType<TMP_Dropdown>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+                TMP_Dropdown[] dropdowns = UnityEngine.Object.FindObjectsByType<TMP_Dropdown>(FindObjectsInactive.Include);
                 foreach (TMP_Dropdown dropdown in dropdowns)
                 {
                     if (dropdown != null && dropdown.name.IndexOf("pose", StringComparison.OrdinalIgnoreCase) >= 0)
@@ -172,7 +172,7 @@ namespace AICompanion.UI
         {
             if (zoomInSlider == null || zoomOutSlider == null || voiceModelDropdown == null)
             {
-                var sliders = UnityEngine.Object.FindObjectsByType<Slider>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+                var sliders = UnityEngine.Object.FindObjectsByType<Slider>(FindObjectsInactive.Include);
                 foreach (var slider in sliders)
                 {
                     if (slider == null)
@@ -191,7 +191,7 @@ namespace AICompanion.UI
                     }
                 }
 
-                var dropdowns = UnityEngine.Object.FindObjectsByType<TMP_Dropdown>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+                var dropdowns = UnityEngine.Object.FindObjectsByType<TMP_Dropdown>(FindObjectsInactive.Include);
                 foreach (var dropdown in dropdowns)
                 {
                     if (dropdown != null && voiceModelDropdown == null && dropdown.name.IndexOf("voicemodel", StringComparison.OrdinalIgnoreCase) >= 0)
@@ -325,7 +325,7 @@ namespace AICompanion.UI
 
             if (parent == null)
             {
-                Canvas[] canvases = UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+                Canvas[] canvases = UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsInactive.Exclude);
                 foreach (Canvas canvas in canvases)
                 {
                     if (canvas != null && canvas.isActiveAndEnabled)
@@ -435,7 +435,7 @@ namespace AICompanion.UI
 
             if (parent == null)
             {
-                Canvas[] canvases = UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+                Canvas[] canvases = UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsInactive.Exclude);
                 foreach (Canvas canvas in canvases)
                 {
                     if (canvas != null && canvas.isActiveAndEnabled)
@@ -618,7 +618,7 @@ namespace AICompanion.UI
         public void AppendLog(string sender, string message)
         {
             string color = sender == "AI" ? "#FFC107" : (sender == "System" ? "#00BCD4" : "#4CAF50");
-            chatLines.Add($"\n<mark=#161028CC><b><color={color}>{sender}:</color></b> {message}</mark>");
+            chatLines.Add($"\n<b><color={color}>{sender}:</color></b> {message}");
             RefreshChatLog();
         }
 
@@ -630,7 +630,7 @@ namespace AICompanion.UI
             }
 
             activeAiLineIndex = chatLines.Count;
-            chatLines.Add("\n<mark=#161028CC><b><color=#FFC107>AI:</color></b> </mark>");
+            chatLines.Add("\n<b><color=#FFC107>AI:</color></b> ");
             RefreshChatLog();
             aiTypingCoroutine = StartCoroutine(TypeAIOverTime(fullMessage, Mathf.Max(0.6f, durationSeconds)));
         }
@@ -645,7 +645,7 @@ namespace AICompanion.UI
 
             if (activeAiLineIndex >= 0 && activeAiLineIndex < chatLines.Count)
             {
-                chatLines[activeAiLineIndex] = $"\n<mark=#161028CC><b><color=#FFC107>AI:</color></b> {finalMessage}</mark>";
+                chatLines[activeAiLineIndex] = $"\n<b><color=#FFC107>AI:</color></b> {finalMessage}";
                 activeAiLineIndex = -1;
                 RefreshChatLog();
             }
@@ -665,7 +665,7 @@ namespace AICompanion.UI
 
                 if (activeAiLineIndex >= 0 && activeAiLineIndex < chatLines.Count)
                 {
-                    chatLines[activeAiLineIndex] = $"\n<mark=#161028CC><b><color=#FFC107>AI:</color></b> <mspace=0.55em>{typed}</mspace></mark>";
+                    chatLines[activeAiLineIndex] = $"\n<b><color=#FFC107>AI:</color></b> <mspace=0.55em>{typed}</mspace>";
                     RefreshChatLog();
                 }
 

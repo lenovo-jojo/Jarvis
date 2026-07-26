@@ -340,31 +340,31 @@ namespace AICompanion.Core
                 {
                     companionUI.AppendLog("System", $"Avatar Load Error: {error}");
                 }
-
-                private void HandleZoomInSliderChanged(float value)
-                {
-                    if (companionCamera == null && Camera.main != null)
-                    {
-                        companionCamera = Camera.main.GetComponent<CompanionCamera>();
-                    }
-                    if (companionCamera != null)
-                    {
-                        companionCamera.SetZoomInSlider(value);
-                    }
-                }
-
-                private void HandleZoomOutSliderChanged(float value)
-                {
-                    if (companionCamera == null && Camera.main != null)
-                    {
-                        companionCamera = Camera.main.GetComponent<CompanionCamera>();
-                    }
-                    if (companionCamera != null)
-                    {
-                        companionCamera.SetZoomOutSlider(value);
-                    }
-                }
             );
+        }
+
+        private void HandleZoomInSliderChanged(float value)
+        {
+            if (companionCamera == null && Camera.main != null)
+            {
+                companionCamera = Camera.main.GetComponent<CompanionCamera>();
+            }
+            if (companionCamera != null)
+            {
+                companionCamera.SetZoomInSlider(value);
+            }
+        }
+
+        private void HandleZoomOutSliderChanged(float value)
+        {
+            if (companionCamera == null && Camera.main != null)
+            {
+                companionCamera = Camera.main.GetComponent<CompanionCamera>();
+            }
+            if (companionCamera != null)
+            {
+                companionCamera.SetZoomOutSlider(value);
+            }
         }
 
         private int GetPoseIndexByName(string poseName)

@@ -19,6 +19,11 @@ namespace AICompanion.Services
         [SerializeField] private float minPitch = -45f;
         [SerializeField] private float maxPitch = 45f;
 
+        [Header("Scene Navigation")]
+        [SerializeField] private float moveSpeed = 2.5f;
+        [SerializeField] private float sprintMultiplier = 2.5f;
+        [SerializeField] private float focusSmoothTime = 0.12f;
+
         private Camera cam;
         private Vector3 currentTargetCamPos;
         private bool isInitialized = false;
@@ -30,6 +35,10 @@ namespace AICompanion.Services
         private float sliderZoomInValue;
         private float sliderZoomOutValue;
         private bool hasSliderInput;
+        private Vector3 sceneOffset;
+        private Vector3 focusVelocity;
+        private Vector3 smoothedFocusPos;
+        private float smoothedFocusHeight = 1.8f;
 
         private void Awake()
         {
@@ -89,10 +98,24 @@ namespace AICompanion.Services
                 }
             }
 
+            if (!isInitialized)
+            {
+                smoothedFocusPos = targetFocusPos;
+                smoothedFocusHeight = targetHeight;
+            }
+            else
+            {
+                smoothedFocusPos = Vector3.SmoothDamp(smoothedFocusPos, targetFocusPos, ref focusVelocity, focusSmoothTime);
+                smoothedFocusHeight = Mathf.Lerp(smoothedFocusHeight, targetHeight, Time.deltaTime * (1f / Mathf.Max(0.01f, focusSmoothTime)));
+            }
+
+            ProcessSceneNavigation();
+            Vector3 focusPos = smoothedFocusPos + sceneOffset;
+
             // Calculate optimal base framing distance to fit the focus height
             float fov = cam != null ? cam.fieldOfView : 60f;
             float radFov = fov * Mathf.Deg2Rad;
-            float baseDistance = (targetHeight / 2.0f) * padding / Mathf.Tan(radFov / 2.0f);
+            float baseDistance = (smoothedFocusHeight / 2.0f) * padding / Mathf.Tan(radFov / 2.0f);
 
             // 4. Input processing using New Input System Mouse class
             bool isInteracting = false;
@@ -152,12 +175,12 @@ namespace AICompanion.Services
             // Convert Yaw/Pitch angles to look direction pointing back from center
             Quaternion orbitRotation = Quaternion.Euler(orbitPitch, orbitYaw, 0f);
             Vector3 targetOffsetDir = orbitRotation * Vector3.forward;
-            Vector3 idealCamPos = targetFocusPos + targetOffsetDir * finalDistance + positionOffset;
+            Vector3 idealCamPos = focusPos + targetOffsetDir * finalDistance + positionOffset;
 
             if (!isInitialized)
             {
                 transform.position = idealCamPos;
-                transform.rotation = Quaternion.LookRotation(targetFocusPos - transform.position);
+                transform.rotation = Quaternion.LookRotation(focusPos - transform.position);
                 currentTargetCamPos = idealCamPos;
                 isInitialized = true;
             }
@@ -169,31 +192,14 @@ namespace AICompanion.Services
             }
             else
             {
-                // When stationary, check if the companion left the viewport margins
-                bool leavesFrame = false;
-                Vector3[] corners = GetBoundsCorners(bounds);
-                foreach (var corner in corners)
-                {
-                    Vector3 viewportPoint = cam.WorldToViewportPoint(corner);
-                    if (viewportPoint.z < 0f || viewportPoint.x < 0.15f || viewportPoint.x > 0.85f || viewportPoint.y < 0.15f || viewportPoint.y > 0.85f)
-                    {
-                        leavesFrame = true;
-                        break;
-                    }
-                }
-
-                // If she left the frame, re-target to her new centered position
-                if (leavesFrame)
-                {
-                    currentTargetCamPos = idealCamPos;
-                }
+                currentTargetCamPos = idealCamPos;
             }
 
             // 5. Smoothly transition to the target position & focus
             if (Vector3.Distance(transform.position, currentTargetCamPos) > 0.005f)
             {
                 transform.position = Vector3.Lerp(transform.position, currentTargetCamPos, Time.deltaTime * smoothSpeed);
-                Quaternion targetCamRot = Quaternion.LookRotation(targetFocusPos - transform.position);
+                Quaternion targetCamRot = Quaternion.LookRotation(focusPos - transform.position);
                 transform.rotation = Quaternion.Slerp(transform.rotation, targetCamRot, Time.deltaTime * smoothSpeed);
             }
         }
@@ -243,6 +249,37 @@ namespace AICompanion.Services
             }
             float sliderDrivenZoom = Mathf.Lerp(minZoom, maxZoom, 0.5f + (sliderZoomOutValue - sliderZoomInValue) * 0.5f);
             zoomOffset = Mathf.Clamp(sliderDrivenZoom, minZoom, maxZoom);
+        }
+
+        private void ProcessSceneNavigation()
+        {
+            if (Keyboard.current == null || cam == null)
+            {
+                return;
+            }
+
+            Vector3 moveInput = Vector3.zero;
+            if (Keyboard.current.wKey.isPressed) moveInput += Vector3.forward;
+            if (Keyboard.current.sKey.isPressed) moveInput += Vector3.back;
+            if (Keyboard.current.aKey.isPressed) moveInput += Vector3.left;
+            if (Keyboard.current.dKey.isPressed) moveInput += Vector3.right;
+            if (Keyboard.current.qKey.isPressed) moveInput += Vector3.down;
+            if (Keyboard.current.eKey.isPressed) moveInput += Vector3.up;
+
+            if (moveInput.sqrMagnitude > 0f)
+            {
+                float speed = moveSpeed * (Keyboard.current.leftShiftKey.isPressed ? sprintMultiplier : 1f);
+                Vector3 worldMove =
+                    (cam.transform.forward * moveInput.z) +
+                    (cam.transform.right * moveInput.x) +
+                    (Vector3.up * moveInput.y);
+                sceneOffset += worldMove.normalized * speed * Time.deltaTime;
+            }
+
+            if (Keyboard.current.rKey.wasPressedThisFrame)
+            {
+                sceneOffset = Vector3.zero;
+            }
         }
     }
 }

@@ -662,8 +662,9 @@ namespace AICompanion.Services
 
             HandleDragging();
 
-            // Keep the avatar generally oriented toward the camera.
-            if (Camera.main != null)
+            // Keep only the procedural companion oriented to the camera.
+            // Custom VRMs already use runtime LookAt and extra root rotation causes jitter.
+            if (!isUsingCustomVrm && Camera.main != null)
             {
                 Vector3 lookPos = Camera.main.transform.position;
                 lookPos.y = currentAvatarGo.transform.position.y;
@@ -1686,16 +1687,6 @@ namespace AICompanion.Services
             if (!isUsingCustomVrm || !isAnimationEnabled || Camera.main == null)
             {
                 return;
-            }
-
-            if (headBone != null)
-            {
-                Vector3 direction = Camera.main.transform.position - headBone.position;
-                if (direction.sqrMagnitude > 0.0001f)
-                {
-                    Quaternion lookRot = Quaternion.LookRotation(direction);
-                    headBone.rotation = Quaternion.Slerp(headBone.rotation, lookRot, Time.deltaTime * 5f);
-                }
             }
 
             if (spineBone != null)
