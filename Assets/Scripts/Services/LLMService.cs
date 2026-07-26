@@ -33,7 +33,7 @@ namespace AICompanion.Services
 
             // Determine URL and API Key based on mode
             string baseUrl = config.isLocalMode ? config.llmBaseUrl : "https://api.openai.com/v1";
-            string apiKey = config.isLocalMode ? "" : config.llmApiKey;
+            string apiKey = config.llmApiKey; // Use the configured API key so local/custom gateways requiring Bearer Auth work
             string modelName = config.isLocalMode ? config.llmModelName : "gpt-4o-mini"; // Standard multimodal cloud model
 
             // If empty baseUrl, fallback to default Ollama
@@ -43,6 +43,8 @@ namespace AICompanion.Services
             }
 
             string endpoint = $"{baseUrl.TrimEnd('/')}/chat/completions";
+
+            Debug.Log($"[LLMService] Sending message to endpoint: '{endpoint}' | Model: '{modelName}' | isLocalMode: {config.isLocalMode} | HasApiKey: {!string.IsNullOrEmpty(apiKey)}");
 
             // Encode textures to Base64
             string base64Cam = null;

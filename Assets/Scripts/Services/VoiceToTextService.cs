@@ -164,22 +164,30 @@ namespace AICompanion.Services
                 apiKey = config.llmApiKey;
             }
 
-            if (string.IsNullOrEmpty(apiKey))
+            if (string.IsNullOrEmpty(apiKey) && !config.isLocalMode)
             {
                 Debug.LogError("[VoiceToTextService] API Key is missing. Cannot transcribe audio.");
                 yield break;
             }
 
             string endpoint = "https://api.openai.com/v1/audio/transcriptions";
+            if (config.isLocalMode)
+            {
+                string baseUrl = string.IsNullOrEmpty(config.llmBaseUrl) ? "http://localhost:11434/v1" : config.llmBaseUrl;
+                endpoint = $"{baseUrl.TrimEnd('/')}/audio/transcriptions";
+            }
 
-            // Construct Multipart Form Request for Whisper API
+            // Construct Multipart Form Request for Whisper API / local Whisper API
             WWWForm form = new WWWForm();
             form.AddBinaryData("file", wavData, "audio.wav", "audio/wav");
-            form.AddField("model", "whisper-1");
+            form.AddField("model", config.isLocalMode ? config.llmModelName : "whisper-1");
 
             using (UnityWebRequest webRequest = UnityWebRequest.Post(endpoint, form))
             {
-                webRequest.SetRequestHeader("Authorization", $"Bearer {apiKey}");
+                if (!string.IsNullOrEmpty(apiKey))
+                {
+                    webRequest.SetRequestHeader("Authorization", $"Bearer {apiKey}");
+                }
 
                 yield return webRequest.SendWebRequest();
 

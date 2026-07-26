@@ -35,7 +35,7 @@ namespace AICompanion.Core
             serviceContainer.transform.SetParent(transform);
 
             llmService = serviceContainer.AddComponent<LLMService>();
-            voiceService = serviceContainer.AddComponent<ElevenLabsVoiceService>();
+            voiceService = serviceContainer.AddComponent<CompanionVoiceService>();
             vrmService = serviceContainer.AddComponent<VRMService>();
             contextService = serviceContainer.AddComponent<ContextService>();
             sttService = serviceContainer.AddComponent<VoiceToTextService>();
@@ -77,6 +77,7 @@ namespace AICompanion.Core
             companionUI.OnPoseSelected += HandlePoseSelected;
             companionUI.OnZoomInSliderChanged += HandleZoomInSliderChanged;
             companionUI.OnZoomOutSliderChanged += HandleZoomOutSliderChanged;
+            companionUI.OnSaveFrameRequested += SaveCurrentFrame;
             companionCamera = Camera.main != null ? Camera.main.GetComponent<CompanionCamera>() : null;
 
             // Populate Pose Dropdown
@@ -91,7 +92,16 @@ namespace AICompanion.Core
                 companionUI.PopulatePoseDropdown(availablePoses);
 
                 // Sync initial pose if VRM is already loaded
-                selectedPoseIndex = GetPoseIndexByName("Feet Focus");
+                ServiceConfig config = ServiceConfig.Load();
+                if (config != null && config.hasSavedFrame && !string.IsNullOrEmpty(config.savedPoseName))
+                {
+                    selectedPoseIndex = GetPoseIndexByName(config.savedPoseName);
+                }
+                else
+                {
+                    selectedPoseIndex = GetPoseIndexByName("Feet Focus");
+                }
+
                 if (selectedPoseIndex != -1)
                 {
                     companionUI.SetSelectedPoseInDropdown(selectedPoseIndex);
@@ -379,6 +389,68 @@ namespace AICompanion.Core
             return -1;
         }
 
+        public void SaveCurrentFrame()
+        {
+            ServiceConfig config = ServiceConfig.Load();
+
+            // 1. Get avatar position and rotation
+            GameObject avatar = GameObject.Find("CompanionAvatarVRM");
+            if (avatar == null)
+            {
+                avatar = GameObject.Find("CompanionAvatarProcedural");
+            }
+
+            if (avatar != null)
+            {
+                config.avatarPosX = avatar.transform.position.x;
+                config.avatarPosY = avatar.transform.position.y;
+                config.avatarPosZ = avatar.transform.position.z;
+
+                config.avatarRotX = avatar.transform.rotation.x;
+                config.avatarRotY = avatar.transform.rotation.y;
+                config.avatarRotZ = avatar.transform.rotation.z;
+                config.avatarRotW = avatar.transform.rotation.w;
+            }
+
+            // 2. Get current pose name
+            if (selectedPoseIndex >= 0 && selectedPoseIndex < availablePoses.Count)
+            {
+                config.savedPoseName = availablePoses[selectedPoseIndex];
+            }
+            else
+            {
+                config.savedPoseName = "Feet Focus";
+            }
+
+            // 3. Get camera settings
+            if (companionCamera != null)
+            {
+                config.camOrbitYaw = companionCamera.OrbitYaw;
+                config.camOrbitPitch = companionCamera.OrbitPitch;
+                config.camZoomOffset = companionCamera.ZoomOffset;
+
+                Vector3 offset = companionCamera.SceneOffset;
+                config.camSceneOffsetX = offset.x;
+                config.camSceneOffsetY = offset.y;
+                config.camSceneOffsetZ = offset.z;
+
+                config.camPosX = companionCamera.transform.position.x;
+                config.camPosY = companionCamera.transform.position.y;
+                config.camPosZ = companionCamera.transform.position.z;
+
+                config.camRotX = companionCamera.transform.rotation.x;
+                config.camRotY = companionCamera.transform.rotation.y;
+                config.camRotZ = companionCamera.transform.rotation.z;
+                config.camRotW = companionCamera.transform.rotation.w;
+            }
+
+            config.hasSavedFrame = true;
+            config.Save();
+
+            companionUI.AppendLog("System", $"SUCCESS: Saved current frame (Pose: {config.savedPoseName}) as default loading layout.");
+            Debug.Log($"[CompanionController] Saved current frame layout. Pose: {config.savedPoseName}");
+        }
+
         private void OnDestroy()
         {
             if (companionUI != null)
@@ -393,6 +465,7 @@ namespace AICompanion.Core
                 companionUI.OnPoseSelected -= HandlePoseSelected;
                 companionUI.OnZoomInSliderChanged -= HandleZoomInSliderChanged;
                 companionUI.OnZoomOutSliderChanged -= HandleZoomOutSliderChanged;
+                companionUI.OnSaveFrameRequested -= SaveCurrentFrame;
             }
         }
     }
