@@ -130,6 +130,11 @@ namespace AICompanion.UI
             {
                 cyclePoseButton = CreateRuntimePoseButton();
             }
+
+            if (poseDropdown == null)
+            {
+                poseDropdown = CreateRuntimePoseDropdown();
+            }
         }
 
         private Button CreateRuntimePoseButton()
@@ -240,6 +245,91 @@ namespace AICompanion.UI
 
             runtimePoseButton = poseButton;
             return poseButton;
+        }
+
+        private TMPro.TMP_Dropdown CreateRuntimePoseDropdown()
+        {
+            Transform parent = null;
+            if (importVrmButton != null &&
+                importVrmButton.transform != null &&
+                importVrmButton.transform.parent != null &&
+                importVrmButton.transform.parent.gameObject.activeInHierarchy)
+            {
+                parent = importVrmButton.transform.parent;
+            }
+
+            if (parent == null)
+            {
+                Canvas[] canvases = UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+                foreach (Canvas canvas in canvases)
+                {
+                    if (canvas != null && canvas.isActiveAndEnabled)
+                    {
+                        parent = canvas.transform;
+                        break;
+                    }
+                }
+            }
+
+            if (parent == null)
+            {
+                parent = transform;
+            }
+
+            if (parent == null)
+            {
+                return null;
+            }
+
+            // Create using TMP_DefaultControls
+            var resources = new TMPro.TMP_DefaultControls.Resources();
+            GameObject dropdownGo = TMPro.TMP_DefaultControls.CreateDropdown(resources);
+            dropdownGo.name = "PoseDropdown";
+            
+            var dropdownRect = dropdownGo.GetComponent<RectTransform>();
+            dropdownRect.SetParent(parent, false);
+
+            // Position it nicely.
+            if (importVrmButton != null)
+            {
+                RectTransform importRect = importVrmButton.GetComponent<RectTransform>();
+                if (importRect != null)
+                {
+                    dropdownRect.anchorMin = importRect.anchorMin;
+                    dropdownRect.anchorMax = importRect.anchorMax;
+                    dropdownRect.pivot = importRect.pivot;
+                    dropdownRect.sizeDelta = new Vector2(180f, 42f);
+                    // Place it nicely below the "Next Pose" button which is 50 units below importVrmButton.
+                    dropdownRect.anchoredPosition = importRect.anchoredPosition + new Vector2(0f, -100f);
+                }
+            }
+            else
+            {
+                dropdownRect.anchorMin = new Vector2(0f, 0f);
+                dropdownRect.anchorMax = new Vector2(0f, 0f);
+                dropdownRect.pivot = new Vector2(0f, 0f);
+                dropdownRect.sizeDelta = new Vector2(180f, 42f);
+                dropdownRect.anchoredPosition = new Vector2(16f, 70f);
+            }
+
+            var dropdown = dropdownGo.GetComponent<TMPro.TMP_Dropdown>();
+            
+            // Set up font styling matching importVrmButton if possible
+            if (importVrmButton != null)
+            {
+                var label = dropdownGo.transform.Find("Label")?.GetComponent<TMPro.TMP_Text>();
+                var importLabel = importVrmButton.GetComponentInChildren<TMPro.TMP_Text>(true);
+                if (label != null && importLabel != null)
+                {
+                    label.font = importLabel.font;
+                    label.fontMaterial = importLabel.fontMaterial;
+                    label.fontSize = importLabel.fontSize;
+                    label.color = importLabel.color;
+                    label.alignment = TMPro.TextAlignmentOptions.Center;
+                }
+            }
+
+            return dropdown;
         }
 
         private void Update()

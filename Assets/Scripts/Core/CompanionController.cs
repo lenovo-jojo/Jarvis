@@ -84,6 +84,13 @@ namespace AICompanion.Core
                 }
                 companionUI.PopulatePoseDropdown(availablePoses);
 
+                // Sync initial pose if VRM is already loaded
+                selectedPoseIndex = GetPoseIndexByName("Feet Focus");
+                if (selectedPoseIndex != -1)
+                {
+                    companionUI.SetSelectedPoseInDropdown(selectedPoseIndex);
+                }
+
                 if (availablePoses.Count == 0)
                 {
                     companionUI.AppendLog("System", "No poses found in Assets/OptionalContent/Solo Scenes.");
@@ -292,13 +299,29 @@ namespace AICompanion.Core
                 onLoaded: (avatar) =>
                 {
                     companionUI.AppendLog("System", "VRM avatar imported successfully!");
-                    selectedPoseIndex = -1;
+                    selectedPoseIndex = GetPoseIndexByName("Feet Focus");
+                    if (selectedPoseIndex != -1)
+                    {
+                        companionUI.SetSelectedPoseInDropdown(selectedPoseIndex);
+                    }
                 },
                 onError: (error) =>
                 {
                     companionUI.AppendLog("System", $"Avatar Load Error: {error}");
                 }
             );
+        }
+
+        private int GetPoseIndexByName(string poseName)
+        {
+            for (int i = 0; i < availablePoses.Count; i++)
+            {
+                if (availablePoses[i].Equals(poseName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return i;
+                }
+            }
+            return -1;
         }
 
         private void OnDestroy()

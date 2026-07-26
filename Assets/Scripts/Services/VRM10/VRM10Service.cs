@@ -15,12 +15,25 @@ namespace AICompanion.Services
     public class VRM10Service : MonoBehaviour, IVRMService
     {
         [Serializable]
+        public class NormalPropData
+        {
+            public Vector3 Position;
+            public Quaternion Rotation;
+            public Vector3 Scale;
+            public string Path;
+            public string RelativePath;
+            public int LinkedIndex;
+            public int LinkedBone;
+        }
+
+        [Serializable]
         public class VpdData
         {
             public CameraInfoData CameraInfo;
             public List<VpdCharacter> CharacterList;
             public LightInfoData LightInfo;
             public List<LightPropData> LightPropsList;
+            public List<NormalPropData> NormalPropsList;
         }
 
         [Serializable]
@@ -74,6 +87,7 @@ namespace AICompanion.Services
         {
             public string name;
             public string vrmaPath;
+            public string vpdPath;
 
             // Bone Posing fallback
             public Vector3 bodyPosition;
@@ -100,6 +114,9 @@ namespace AICompanion.Services
             // Light props list
             public List<LightPropData> lightProps;
 
+            // Normal props list
+            public List<NormalPropData> normalProps;
+
 #if UNITY_EDITOR
             public AnimationClip animationClip;
 #endif
@@ -121,6 +138,8 @@ namespace AICompanion.Services
         private List<CustomPose> loadedOptionalPoses = new List<CustomPose>();
         private List<string> availablePoseNames = new List<string>();
         private List<GameObject> activeLightProps = new List<GameObject>();
+        private List<GameObject> activeNormalProps = new List<GameObject>();
+        private List<Renderer> avatarRenderers = new List<Renderer>();
 
         // PlayableGraph for Animation Clips
         private UnityEngine.Playables.PlayableGraph playableGraph;
@@ -162,6 +181,101 @@ namespace AICompanion.Services
                 if (go != null) Destroy(go);
             }
             activeLightProps.Clear();
+        }
+
+        private string ResolvePropPath(string vpdPath, string relativePath, string absolutePath)
+        {
+            if (!string.IsNullOrEmpty(relativePath))
+            {
+                string normalizedRelative = relativePath.Replace('\\', '/');
+                string vpdDir = Path.GetDirectoryName(vpdPath);
+                string resolvedPath = Path.GetFullPath(Path.Combine(vpdDir, normalizedRelative));
+                if (File.Exists(resolvedPath))
+                {
+                    return resolvedPath;
+                }
+
+                string fileName = Path.GetFileName(normalizedRelative);
+                string fallbackPath = Path.Combine(Application.dataPath, "OptionalContent/Props", fileName);
+                if (File.Exists(fallbackPath))
+                {
+                    return fallbackPath;
+                }
+            }
+
+            if (!string.IsNullOrEmpty(absolutePath) && File.Exists(absolutePath))
+            {
+                return absolutePath;
+            }
+
+            return null;
+        }
+
+        private async void SpawnNormalProps(CustomPose cp)
+        {
+            if (cp.normalProps == null) return;
+
+            foreach (var np in cp.normalProps)
+            {
+                string resolvedPath = ResolvePropPath(cp.vpdPath, np.RelativePath, np.Path);
+                if (string.IsNullOrEmpty(resolvedPath) || !File.Exists(resolvedPath))
+                {
+                    Debug.LogWarning($"[VRMService] Normal prop file not found: relative={np.RelativePath}, path={np.Path}");
+                    continue;
+                }
+
+                try
+                {
+                    RuntimeGltfInstance glbInstance = await GltfUtility.LoadAsync(
+                        resolvedPath,
+                        new RuntimeOnlyAwaitCaller(),
+                        new UrpGltfMaterialDescriptorGenerator()
+                    );
+
+                    if (glbInstance != null)
+                    {
+                        GameObject propGo = glbInstance.gameObject;
+                        propGo.name = "VpdNormalProp_" + Path.GetFileNameWithoutExtension(resolvedPath);
+
+                        Transform parentTransform = currentAvatarGo != null ? currentAvatarGo.transform : null;
+                        if (np.LinkedBone >= 0 && currentAvatarGo != null)
+                        {
+                            Animator animator = currentAvatarGo.GetComponent<Animator>();
+                            if (animator != null && animator.isHuman)
+                            {
+                                Transform boneTransform = animator.GetBoneTransform((HumanBodyBones)np.LinkedBone);
+                                if (boneTransform != null)
+                                {
+                                    parentTransform = boneTransform;
+                                }
+                            }
+                        }
+
+                        propGo.transform.SetParent(parentTransform, false);
+                        propGo.transform.localPosition = np.Position;
+                        propGo.transform.localRotation = np.Rotation;
+                        propGo.transform.localScale = np.Scale;
+
+                        glbInstance.ShowMeshes();
+                        activeNormalProps.Add(propGo);
+
+                        Debug.Log($"[VRMService] Successfully spawned normal prop: {propGo.name} parented to {(parentTransform != null ? parentTransform.name : "null")}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"[VRMService] Failed to load normal prop '{resolvedPath}': {ex}");
+                }
+            }
+        }
+
+        private void DestroyActiveNormalProps()
+        {
+            foreach (var go in activeNormalProps)
+            {
+                if (go != null) Destroy(go);
+            }
+            activeNormalProps.Clear();
         }
 
         // Fallback variables for generic/VRM 1.0 blendshape manipulation
@@ -234,8 +348,14 @@ namespace AICompanion.Services
         private float blinkTimer;
         private float blinkInterval = 4.0f;
 
+        private float vrmBlinkTimer;
+        private float vrmBlinkInterval = 3.0f;
+        private float vrmBlinkDuration = 0.15f;
+        private bool isVrmBlinking;
+
         private void Start()
         {
+            CreateVisualStudioStage();
             LoadOptionalPoses();
 
             // Set up default procedural companion on start
@@ -344,9 +464,15 @@ namespace AICompanion.Services
                             cp.lightColor = vpd.LightInfo.LightColor;
                         }
 
+                        cp.vpdPath = vpdFiles[0];
                         if (vpd != null && vpd.LightPropsList != null)
                         {
                             cp.lightProps = vpd.LightPropsList;
+                        }
+
+                        if (vpd != null && vpd.NormalPropsList != null)
+                        {
+                            cp.normalProps = vpd.NormalPropsList;
                         }
                     }
 
@@ -399,6 +525,7 @@ namespace AICompanion.Services
                 $"(Index: {currentPoseIndex})");
 
             DestroyActiveLightProps();
+            DestroyActiveNormalProps();
             DestroyActiveVrma();
 
             // Prefer static VPD pose data when available. This is more robust across
@@ -415,6 +542,12 @@ namespace AICompanion.Services
                 };
 
                 poseHandler.SetHumanPose(ref hp);
+
+                if (vrm10Instance != null && vrm10Instance.Runtime != null)
+                {
+                    vrm10Instance.Runtime.Process();
+                }
+
                 Debug.Log($"[VRMService] Applied VPD pose: {cp.name}");
                 ApplyPoseSceneContext(cp);
                 return;
@@ -517,6 +650,7 @@ namespace AICompanion.Services
             }
 
             SpawnLightProps(cp);
+            SpawnNormalProps(cp);
         }
 
         private void Update()
@@ -535,7 +669,7 @@ namespace AICompanion.Services
                 Vector3 direction = lookPos - currentAvatarGo.transform.position;
                 if (direction.sqrMagnitude > 0.0001f)
                 {
-                    Quaternion targetRotation = Quaternion.LookRotation(direction) * Quaternion.Euler(0f, 180f, 0f);
+                    Quaternion targetRotation = Quaternion.LookRotation(direction);
                     currentAvatarGo.transform.rotation = Quaternion.Slerp(
                         currentAvatarGo.transform.rotation,
                         targetRotation,
@@ -546,6 +680,42 @@ namespace AICompanion.Services
 
             if (isUsingCustomVrm)
             {
+                if (vrm10Instance != null && vrm10Instance.Runtime != null)
+                {
+                    // 1. Look at camera (with eyes & head)
+                    if (Camera.main != null)
+                    {
+                        vrm10Instance.Runtime.LookAt.LookAtInput = new LookAtInput
+                        {
+                            WorldPosition = Camera.main.transform.position
+                        };
+                    }
+
+                    // 2. Auto-blinking
+                    vrmBlinkTimer += Time.deltaTime;
+                    if (isVrmBlinking)
+                    {
+                        float progress = vrmBlinkTimer / vrmBlinkDuration;
+                        if (progress >= 1f)
+                        {
+                            isVrmBlinking = false;
+                            vrmBlinkTimer = 0f;
+                            vrmBlinkInterval = UnityEngine.Random.Range(2.5f, 5.5f);
+                            vrm10Instance.Runtime.Expression.SetWeight(ExpressionKey.Blink, 0f);
+                        }
+                        else
+                        {
+                            float blinkWeight = Mathf.Sin(progress * Mathf.PI);
+                            vrm10Instance.Runtime.Expression.SetWeight(ExpressionKey.Blink, blinkWeight);
+                        }
+                    }
+                    else if (vrmBlinkTimer >= vrmBlinkInterval)
+                    {
+                        isVrmBlinking = true;
+                        vrmBlinkTimer = 0f;
+                    }
+                }
+
                 if (vrmProxy != null)
                 {
                     vrmProxy.Apply();
@@ -644,9 +814,47 @@ namespace AICompanion.Services
 
         private void LateUpdate()
         {
-            if (!isUsingCustomVrm ||
-                !isAnimationEnabled ||
-                currentPoseIndex < 0 ||
+            if (!isUsingCustomVrm || !isAnimationEnabled)
+            {
+                return;
+            }
+
+            // 1. Procedural breathing
+            if (spineBone != null)
+            {
+                // Breathing cycle: sine wave with period of ~3.2 seconds
+                float breathValue = Mathf.Sin(Time.time * (2f * Mathf.PI / 3.2f)); 
+                
+                // Breath value is -1 to 1. Map to a subtle rotation offset (pitch/tilt)
+                float breathPitch = breathValue * 1.0f;
+                // Add a very subtle expansion (scale) as well!
+                spineBone.localScale = new Vector3(
+                    1f + breathValue * 0.005f, 
+                    1f + breathValue * 0.002f, 
+                    1f + breathValue * 0.01f
+                );
+
+                spineBone.localRotation = spineInitialRot * Quaternion.Euler(breathPitch, 0f, 0f);
+            }
+
+            // Very subtle vertical movement of the hips to match breathing
+            if (hipsBone != null)
+            {
+                float breathValue = Mathf.Sin(Time.time * (2f * Mathf.PI / 3.2f));
+                hipsBone.localPosition = hipsInitialPos + new Vector3(0f, breathValue * 0.003f, 0f);
+            }
+
+            // 2. Dynamic blanket alignment (picnic blanket is at Y = 0.01f)
+            Bounds bounds = GetAvatarBounds();
+            float targetMinY = 0.01f;
+            float currentMinY = bounds.min.y;
+            float diff = targetMinY - currentMinY;
+            if (Mathf.Abs(diff) > 0.001f)
+            {
+                currentAvatarGo.transform.position += new Vector3(0f, diff, 0f);
+            }
+
+            if (currentPoseIndex < 0 ||
                 currentPoseIndex >= loadedOptionalPoses.Count)
             {
                 return;
@@ -674,6 +882,11 @@ namespace AICompanion.Services
                 };
 
                 poseHandler.SetHumanPose(ref hp);
+
+                if (vrm10Instance != null && vrm10Instance.Runtime != null)
+                {
+                    vrm10Instance.Runtime.Process();
+                }
             }
         }
 
@@ -811,6 +1024,7 @@ namespace AICompanion.Services
                 vrm10Instance = await Vrm10.LoadPathAsync(
                     filePath,
                     canLoadVrm0X: true,
+                    controlRigGenerationOption: ControlRigGenerationOption.None,
                     showMeshes: true,
                     awaitCaller: new RuntimeOnlyAwaitCaller());
 
@@ -837,26 +1051,22 @@ namespace AICompanion.Services
                         "VRMA retargeting requires a VRM 1.0 humanoid avatar.");
                 }
 
-                Transform head =
-                    animator.GetBoneTransform(HumanBodyBones.Head);
-
-                if (head != null)
-                {
-                    float headHeightOffset =
-                        head.position.y -
-                        currentAvatarGo.transform.position.y;
-
-                    float targetY = 1.05f - headHeightOffset;
-                    currentAvatarGo.transform.position =
-                        new Vector3(0f, targetY, 2f);
-                }
-                else
-                {
-                    currentAvatarGo.transform.position =
-                        new Vector3(0f, -0.5f, 2f);
-                }
-
+                // Place her sitting on the picnic blanket (0.02f height is perfect)
+                currentAvatarGo.transform.position = new Vector3(0f, 0.02f, 2f);
                 startPosition = currentAvatarGo.transform.position;
+
+                // Immediately align the avatar to face the camera upon import
+                if (Camera.main != null)
+                {
+                    Vector3 lookPos = Camera.main.transform.position;
+                    lookPos.y = currentAvatarGo.transform.position.y;
+                    Vector3 direction = lookPos - currentAvatarGo.transform.position;
+                    if (direction.sqrMagnitude > 0.0001f)
+                    {
+                        currentAvatarGo.transform.rotation = Quaternion.LookRotation(direction);
+                    }
+                }
+
                 isUsingCustomVrm = true;
 
                 vrmProxy =
@@ -931,6 +1141,9 @@ namespace AICompanion.Services
 
                 FindFallbackBlendshapes();
 
+                avatarRenderers.Clear();
+                avatarRenderers.AddRange(currentAvatarGo.GetComponentsInChildren<Renderer>());
+
                 RuntimeGltfInstance runtimeGltf =
                     currentAvatarGo.GetComponent<RuntimeGltfInstance>();
 
@@ -984,8 +1197,24 @@ namespace AICompanion.Services
                 Debug.Log(
                     "[VRMService] VRM 1.0 character loaded successfully.");
 
-                // Start in neutral state. Poses are selected explicitly by the user.
-                currentPoseIndex = -1;
+                // Load default Feet Focus pose on load
+                int defaultPoseIdx = -1;
+                for (int i = 0; i < loadedOptionalPoses.Count; i++)
+                {
+                    if (loadedOptionalPoses[i].name.Equals("Feet Focus", StringComparison.OrdinalIgnoreCase))
+                    {
+                        defaultPoseIdx = i;
+                        break;
+                    }
+                }
+                if (defaultPoseIdx != -1)
+                {
+                    SetPose(defaultPoseIdx);
+                }
+                else
+                {
+                    currentPoseIndex = -1;
+                }
                 onLoaded?.Invoke(currentAvatarGo);
             }
             catch (Exception ex)
@@ -1003,7 +1232,42 @@ namespace AICompanion.Services
             {
                 string expLower = expressionName.ToLower();
 
-                if (vrmProxy != null)
+                if (vrm10Instance != null && vrm10Instance.Runtime != null && vrm10Instance.Runtime.Expression != null)
+                {
+                    // Reset standard emotions to avoid blended overrides
+                    vrm10Instance.Runtime.Expression.SetWeight(ExpressionKey.Happy, 0f);
+                    vrm10Instance.Runtime.Expression.SetWeight(ExpressionKey.Sad, 0f);
+                    vrm10Instance.Runtime.Expression.SetWeight(ExpressionKey.Angry, 0f);
+                    vrm10Instance.Runtime.Expression.SetWeight(ExpressionKey.Relaxed, 0f);
+                    vrm10Instance.Runtime.Expression.SetWeight(ExpressionKey.Surprised, 0f);
+                    vrm10Instance.Runtime.Expression.SetWeight(ExpressionKey.Neutral, 0f);
+
+                    if (expLower == "happy" || expLower == "joy")
+                    {
+                        vrm10Instance.Runtime.Expression.SetWeight(ExpressionKey.Happy, value);
+                    }
+                    else if (expLower == "sad" || expLower == "sorrow")
+                    {
+                        vrm10Instance.Runtime.Expression.SetWeight(ExpressionKey.Sad, value);
+                    }
+                    else if (expLower == "angry")
+                    {
+                        vrm10Instance.Runtime.Expression.SetWeight(ExpressionKey.Angry, value);
+                    }
+                    else if (expLower == "relaxed")
+                    {
+                        vrm10Instance.Runtime.Expression.SetWeight(ExpressionKey.Relaxed, value);
+                    }
+                    else if (expLower == "surprised")
+                    {
+                        vrm10Instance.Runtime.Expression.SetWeight(ExpressionKey.Surprised, value);
+                    }
+                    else
+                    {
+                        vrm10Instance.Runtime.Expression.SetWeight(ExpressionKey.Neutral, value);
+                    }
+                }
+                else if (vrmProxy != null)
                 {
                     // Reset standard emotion blendshapes to clear prior states
                     vrmProxy.ImmediatelySetValue(BlendShapeKey.CreateFromPreset(BlendShapePreset.Joy), 0f);
@@ -1063,7 +1327,11 @@ namespace AICompanion.Services
             if (isUsingCustomVrm)
             {
                 float weight = Mathf.Clamp01(volume * 2.0f);
-                if (vrmProxy != null)
+                if (vrm10Instance != null && vrm10Instance.Runtime != null && vrm10Instance.Runtime.Expression != null)
+                {
+                    vrm10Instance.Runtime.Expression.SetWeight(ExpressionKey.Aa, weight);
+                }
+                else if (vrmProxy != null)
                 {
                     vrmProxy.ImmediatelySetValue(BlendShapeKey.CreateFromPreset(BlendShapePreset.A), weight);
                 }
@@ -1142,6 +1410,130 @@ namespace AICompanion.Services
             }
 
             DestroyActiveLightProps();
+            DestroyActiveNormalProps();
+        }
+
+        private Bounds GetAvatarBounds()
+        {
+            if (currentAvatarGo == null) return new Bounds(Vector3.zero, Vector3.one);
+            
+            Bounds bounds = new Bounds(currentAvatarGo.transform.position, Vector3.zero);
+            bool hasBounds = false;
+            
+            if (avatarRenderers != null && avatarRenderers.Count > 0)
+            {
+                foreach (var r in avatarRenderers)
+                {
+                    if (r != null && r.enabled && r.gameObject.activeInHierarchy && r.bounds.size.magnitude > 0.05f)
+                    {
+                        if (!hasBounds)
+                        {
+                            bounds = r.bounds;
+                            hasBounds = true;
+                        }
+                        else
+                        {
+                            bounds.Encapsulate(r.bounds);
+                        }
+                    }
+                }
+            }
+            
+            if (!hasBounds)
+            {
+                bounds = new Bounds(currentAvatarGo.transform.position, new Vector3(1f, 1.8f, 1f));
+            }
+            
+            return bounds;
+        }
+
+        private void CreateVisualStudioStage()
+        {
+            // 1. Floor (Grass Field)
+            GameObject floor = GameObject.CreatePrimitive(PrimitiveType.Plane);
+            floor.name = "PicnicStage_Grass";
+            floor.transform.position = new Vector3(0f, 0f, 2f);
+            floor.transform.localScale = new Vector3(10f, 1f, 10f); // Make it a huge grass field!
+
+            Shader urpLitShader = Shader.Find("Universal Render Pipeline/Lit");
+            if (urpLitShader == null) urpLitShader = Shader.Find("Universal Render Pipeline/Unlit");
+
+            Material grassMat = new Material(urpLitShader);
+            grassMat.SetColor("_BaseColor", new Color(0.18f, 0.48f, 0.20f)); // Rich lush grass green
+            grassMat.SetFloat("_Metallic", 0.05f);
+            grassMat.SetFloat("_Smoothness", 0.1f);
+            floor.GetComponent<Renderer>().material = grassMat;
+
+            // Spawn procedural 3D grass/flowers!
+            System.Random rand = new System.Random(42);
+            for (int i = 0; i < 60; i++)
+            {
+                GameObject plant = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+                plant.name = "GrassTuft_" + i;
+                Destroy(plant.GetComponent<Collider>()); // Avoid blocking clicks
+                
+                // Position randomly around the picnic blanket (blanket is at (0, 0, 2))
+                float angle = (float)(rand.NextDouble() * Math.PI * 2);
+                float radius = 1.0f + (float)(rand.NextDouble() * 4.0f);
+                float x = Mathf.Sin(angle) * radius;
+                float z = 2.0f + Mathf.Cos(angle) * radius;
+                
+                plant.transform.position = new Vector3(x, 0.15f, z);
+                plant.transform.localScale = new Vector3(0.04f + (float)rand.NextDouble() * 0.04f, 0.1f + (float)rand.NextDouble() * 0.2f, 0.04f + (float)rand.NextDouble() * 0.04f);
+                
+                Material plantMat = new Material(urpLitShader);
+                // Vary color slightly between lime green and deep forest green
+                float hueOffset = (float)rand.NextDouble() * 0.15f;
+                plantMat.SetColor("_BaseColor", new Color(0.15f + hueOffset, 0.45f + hueOffset * 0.5f, 0.12f));
+                plantMat.SetFloat("_Smoothness", 0.1f);
+                plant.GetComponent<Renderer>().material = plantMat;
+            }
+
+            // 2. Picnic Blanket
+            GameObject blanket = GameObject.CreatePrimitive(PrimitiveType.Plane);
+            blanket.name = "PicnicStage_Blanket";
+            blanket.transform.position = new Vector3(0f, 0.01f, 2f); // Slightly above grass to avoid z-fighting
+            blanket.transform.localScale = new Vector3(0.25f, 1f, 0.25f); // 2.5m x 2.5m blanket
+            
+            // Red-and-White Checkered Pattern Texture
+            Texture2D checkeredTex = new Texture2D(2, 2);
+            checkeredTex.wrapMode = TextureWrapMode.Repeat;
+            checkeredTex.filterMode = FilterMode.Point;
+            checkeredTex.SetPixels(new Color[] {
+                Color.white, new Color(0.85f, 0.15f, 0.15f), // White, Red
+                new Color(0.85f, 0.15f, 0.15f), Color.white  // Red, White
+            });
+            checkeredTex.Apply();
+
+            Material blanketMat = new Material(urpLitShader);
+            blanketMat.SetTexture("_BaseMap", checkeredTex);
+            // Tile the texture to look like a checkered blanket
+            blanketMat.SetTextureScale("_BaseMap", new Vector2(8f, 8f));
+            blanketMat.SetFloat("_Metallic", 0.0f);
+            blanketMat.SetFloat("_Smoothness", 0.05f);
+            blanket.GetComponent<Renderer>().material = blanketMat;
+
+            // 3. Sunny Warm Directional Light
+            // Disable existing directional lights to avoid double-lighting/overexposure
+            foreach (var existingLight in GameObject.FindObjectsByType<Light>(FindObjectsInactive.Include))
+            {
+                if (existingLight.type == LightType.Directional)
+                {
+                    existingLight.gameObject.SetActive(false);
+                }
+            }
+
+            GameObject keyLightGo = new GameObject("PicnicStage_SunLight");
+            Light keyLight = keyLightGo.AddComponent<Light>();
+            keyLight.type = LightType.Directional;
+            keyLight.intensity = 1.3f;
+            keyLight.color = new Color(1.0f, 0.96f, 0.88f); // Warm sun golden hour / morning
+            keyLight.shadows = LightShadows.Soft; // Beautiful soft shadows!
+            keyLightGo.transform.rotation = Quaternion.Euler(40f, -40f, 0f);
+
+            // Ambient sky blue light
+            RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
+            RenderSettings.ambientLight = new Color(0.55f, 0.75f, 0.95f); // Beautiful sky blue fill
         }
 
         private Transform FindBoneInHierarchy(Transform current, string[] possibleNames)

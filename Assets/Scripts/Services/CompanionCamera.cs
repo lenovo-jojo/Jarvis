@@ -70,11 +70,26 @@ namespace AICompanion.Services
                 bounds = new Bounds(targetGo.transform.position, new Vector3(1f, 1.8f, 1f));
             }
 
-            // 3. Calculate optimal base framing distance to fit the full height of the avatar
-            float height = bounds.size.y;
+            // 3. Determine dynamic target focus position and height (Focus on head/face if available)
+            Vector3 targetFocusPos = bounds.center;
+            float targetHeight = bounds.size.y;
+
+            Animator animator = targetGo.GetComponent<Animator>();
+            if (animator != null && animator.isHuman)
+            {
+                Transform headBone = animator.GetBoneTransform(HumanBodyBones.Head);
+                if (headBone != null)
+                {
+                    targetFocusPos = headBone.position;
+                    // 0.6f gives a beautiful head-and-shoulders portrait close-up!
+                    targetHeight = 0.6f;
+                }
+            }
+
+            // Calculate optimal base framing distance to fit the focus height
             float fov = cam != null ? cam.fieldOfView : 60f;
             float radFov = fov * Mathf.Deg2Rad;
-            float baseDistance = (height / 2.0f) * padding / Mathf.Tan(radFov / 2.0f);
+            float baseDistance = (targetHeight / 2.0f) * padding / Mathf.Tan(radFov / 2.0f);
 
             // 4. Input processing using New Input System Mouse class
             bool isInteracting = false;
@@ -133,12 +148,12 @@ namespace AICompanion.Services
             // Convert Yaw/Pitch angles to look direction pointing back from center
             Quaternion orbitRotation = Quaternion.Euler(orbitPitch, orbitYaw, 0f);
             Vector3 targetOffsetDir = orbitRotation * Vector3.forward;
-            Vector3 idealCamPos = bounds.center + targetOffsetDir * finalDistance + positionOffset;
+            Vector3 idealCamPos = targetFocusPos + targetOffsetDir * finalDistance + positionOffset;
 
             if (!isInitialized)
             {
                 transform.position = idealCamPos;
-                transform.rotation = Quaternion.LookRotation(bounds.center - transform.position);
+                transform.rotation = Quaternion.LookRotation(targetFocusPos - transform.position);
                 currentTargetCamPos = idealCamPos;
                 isInitialized = true;
             }
@@ -174,7 +189,7 @@ namespace AICompanion.Services
             if (Vector3.Distance(transform.position, currentTargetCamPos) > 0.005f)
             {
                 transform.position = Vector3.Lerp(transform.position, currentTargetCamPos, Time.deltaTime * smoothSpeed);
-                Quaternion targetCamRot = Quaternion.LookRotation(bounds.center - transform.position);
+                Quaternion targetCamRot = Quaternion.LookRotation(targetFocusPos - transform.position);
                 transform.rotation = Quaternion.Slerp(transform.rotation, targetCamRot, Time.deltaTime * smoothSpeed);
             }
         }
