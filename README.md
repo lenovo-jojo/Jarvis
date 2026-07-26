@@ -61,7 +61,7 @@ Toggle **Local Mode OFF** in Settings and paste your OpenAI API key. Uses `gpt-4
 
 ## Package Dependencies (auto-installed by Unity)
 
-- [UniVRM 0.128.1](https://github.com/vrm-c/UniVRM) via OpenUPM
+- [UniVRM 0.131.2](https://github.com/vrm-c/UniVRM) via OpenUPM
 - Universal Render Pipeline (URP)
 - Input System
 - TextMeshPro
