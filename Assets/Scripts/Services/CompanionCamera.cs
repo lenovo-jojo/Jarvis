@@ -27,6 +27,9 @@ namespace AICompanion.Services
         private float orbitPitch = 10f; // Slightly angled down
         private float zoomOffset = 0f;
         private bool isOrbitBlockedByAvatarDrag;
+        private float sliderZoomInValue;
+        private float sliderZoomOutValue;
+        private bool hasSliderInput;
 
         private void Awake()
         {
@@ -142,6 +145,7 @@ namespace AICompanion.Services
             }
 
             // Calculate target distance after zoom
+            ApplySliderZoom();
             float finalDistance = baseDistance + zoomOffset;
 
             // Compute ideal/target position based on orbit angles
@@ -217,6 +221,28 @@ namespace AICompanion.Services
 
             Ray ray = cam.ScreenPointToRay(pointerPosition);
             return Physics.Raycast(ray, out RaycastHit hit) && hit.transform.IsChildOf(targetGo.transform);
+        }
+
+        public void SetZoomInSlider(float normalizedValue)
+        {
+            sliderZoomInValue = Mathf.Clamp01(normalizedValue);
+            hasSliderInput = true;
+        }
+
+        public void SetZoomOutSlider(float normalizedValue)
+        {
+            sliderZoomOutValue = Mathf.Clamp01(normalizedValue);
+            hasSliderInput = true;
+        }
+
+        private void ApplySliderZoom()
+        {
+            if (!hasSliderInput)
+            {
+                return;
+            }
+            float sliderDrivenZoom = Mathf.Lerp(minZoom, maxZoom, 0.5f + (sliderZoomOutValue - sliderZoomInValue) * 0.5f);
+            zoomOffset = Mathf.Clamp(sliderDrivenZoom, minZoom, maxZoom);
         }
     }
 }

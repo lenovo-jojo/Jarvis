@@ -19,6 +19,7 @@ namespace AICompanion.Core
         void LoadVRM(string filePath, Action<GameObject> onLoaded, Action<string> onError);
         void SetExpression(string expressionName, float value);
         void PlayMouthVolume(float volume);
+        void SetSpeaking(bool speaking);
         void SetAnimationEnabled(bool enabled);
         void CyclePose();
         System.Collections.Generic.List<string> GetAvailablePoses();

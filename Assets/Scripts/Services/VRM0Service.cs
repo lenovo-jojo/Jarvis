@@ -51,6 +51,10 @@ namespace AICompanion.Services
         {
         }
 
+        public void SetSpeaking(bool speaking)
+        {
+        }
+
         public void SetAnimationEnabled(bool enabled)
         {
         }
