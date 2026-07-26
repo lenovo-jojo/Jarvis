@@ -48,7 +48,7 @@ Settings are saved automatically to your device.
 - 📷 **Webcam context** — AI can see your camera feed
 - 🖥️ **Screen context** — AI can see your screen
 - 🧍 **VRM avatar support** — import any VRM 1.0 file
-- 🎭 **Pose system** — loads poses from `Assets/OptionalContent/Solo Scenes/`
+- 🎭 **Pose system** 
 - 🖱️ **Click and drag** the avatar around the screen
 
 ---
