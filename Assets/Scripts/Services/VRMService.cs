@@ -77,6 +77,11 @@ namespace AICompanion.Services
             implementation?.PlayMouthVolume(volume);
         }
 
+        public void SetSpeaking(bool speaking)
+        {
+            implementation?.SetSpeaking(speaking);
+        }
+
         public void SetAnimationEnabled(bool enabled)
         {
             implementation?.SetAnimationEnabled(enabled);

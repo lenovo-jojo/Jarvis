@@ -21,12 +21,13 @@ namespace AICompanion.Services
             }
 
             string voiceId = string.IsNullOrEmpty(config.elevenLabsVoiceId) ? "Vw2FAddBZobPTywXPmmm" : config.elevenLabsVoiceId;
+            string modelId = string.IsNullOrEmpty(config.elevenLabsModelId) ? "eleven_multilingual_v2" : config.elevenLabsModelId;
             string url = $"https://api.elevenlabs.io/v1/text-to-speech/{voiceId}";
 
             // Request body JSON
             string jsonPayload = "{" +
                 $"\"text\": \"{EscapeJson(text)}\"," +
-                "\"model_id\": \"eleven_multilingual_v2\"," +
+                $"\"model_id\": \"{EscapeJson(modelId)}\"," +
                 "\"voice_settings\": {" +
                     "\"stability\": 0.5," +
                     "\"similarity_boost\": 0.75" +

@@ -12,6 +12,7 @@ namespace AICompanion.Core
         public string llmModelName = "dolphin-mistral";
         public string elevenLabsApiKey = "";
         public string elevenLabsVoiceId = "Vw2FAddBZobPTywXPmmm"; // Custom default
+        public string elevenLabsModelId = "eleven_multilingual_v2";
         public bool isLocalMode = true;
         public string customVrmPath = "";
 

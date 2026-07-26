@@ -3,6 +3,9 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using AICompanion.Core;
+using System.Collections;
+using System.Collections.Generic;
+using System.Text;
 
 namespace AICompanion.UI
 {
@@ -34,6 +37,9 @@ namespace AICompanion.UI
         [SerializeField] private RawImage webcamPreviewImage;
         [SerializeField] private RawImage screenPreviewImage;
         [SerializeField] private Button importVrmButton;
+        [SerializeField] private Slider zoomInSlider;
+        [SerializeField] private Slider zoomOutSlider;
+        [SerializeField] private TMP_Dropdown voiceModelDropdown;
 
         [Header("Status")]
         [SerializeField] private TMP_Text connectionStatusText;
@@ -46,6 +52,8 @@ namespace AICompanion.UI
         public event Action<bool> OnMicToggleChanged;
         public event Action OnCyclePoseRequested;
         public event Action<int> OnPoseSelected;
+        public event Action<float> OnZoomInSliderChanged;
+        public event Action<float> OnZoomOutSliderChanged;
 
         public bool IsMicEnabled => micToggle != null && micToggle.isOn;
         public bool IsInputFocused => messageInputField != null && messageInputField.isFocused;
@@ -53,13 +61,18 @@ namespace AICompanion.UI
         private ServiceConfig currentConfig;
         private Button runtimePoseButton;
         private static readonly Rect PoseFallbackRect = new Rect(16f, 16f, 180f, 42f);
+        private readonly List<string> chatLines = new List<string>();
+        private Coroutine aiTypingCoroutine;
+        private int activeAiLineIndex = -1;
+        private static readonly List<string> VoiceModels = new List<string> { "eleven_multilingual_v2", "animalesse.js" };
 
         private void Start()
         {
             // Load configuration
             currentConfig = ServiceConfig.Load();
-            PopulateSettingsUI();
             ResolvePoseControls();
+            ResolveExtraControls();
+            PopulateSettingsUI();
 
             // Setup listeners
             if (sendButton != null)
@@ -90,6 +103,24 @@ namespace AICompanion.UI
             if (micToggle != null)
             {
                 micToggle.onValueChanged.AddListener((val) => OnMicToggleChanged?.Invoke(val));
+            }
+            if (zoomInSlider != null)
+            {
+                zoomInSlider.onValueChanged.AddListener((val) => OnZoomInSliderChanged?.Invoke(val));
+            }
+            if (zoomOutSlider != null)
+            {
+                zoomOutSlider.onValueChanged.AddListener((val) => OnZoomOutSliderChanged?.Invoke(val));
+            }
+            if (voiceModelDropdown != null)
+            {
+                voiceModelDropdown.onValueChanged.AddListener((idx) =>
+                {
+                    if (idx >= 0 && idx < VoiceModels.Count)
+                    {
+                        currentConfig.elevenLabsModelId = VoiceModels[idx];
+                    }
+                });
             }
 
             if (settingsPanel != null)
@@ -130,6 +161,150 @@ namespace AICompanion.UI
             {
                 cyclePoseButton = CreateRuntimePoseButton();
             }
+        }
+
+        private void ResolveExtraControls()
+        {
+            if (zoomInSlider == null || zoomOutSlider == null || voiceModelDropdown == null)
+            {
+                var sliders = UnityEngine.Object.FindObjectsByType<Slider>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+                foreach (var slider in sliders)
+                {
+                    if (slider == null)
+                    {
+                        continue;
+                    }
+
+                    string lowerName = slider.name.ToLowerInvariant();
+                    if (zoomInSlider == null && lowerName.Contains("zoomin"))
+                    {
+                        zoomInSlider = slider;
+                    }
+                    else if (zoomOutSlider == null && lowerName.Contains("zoomout"))
+                    {
+                        zoomOutSlider = slider;
+                    }
+                }
+
+                var dropdowns = UnityEngine.Object.FindObjectsByType<TMP_Dropdown>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+                foreach (var dropdown in dropdowns)
+                {
+                    if (dropdown != null && voiceModelDropdown == null && dropdown.name.IndexOf("voicemodel", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        voiceModelDropdown = dropdown;
+                    }
+                }
+            }
+
+            if (zoomInSlider == null)
+            {
+                zoomInSlider = CreateRuntimeZoomSlider("ZoomInSlider", "Zoom +", new Vector2(-240f, -88f));
+            }
+            if (zoomOutSlider == null)
+            {
+                zoomOutSlider = CreateRuntimeZoomSlider("ZoomOutSlider", "Zoom -", new Vector2(-240f, -126f));
+            }
+            if (voiceModelDropdown == null)
+            {
+                voiceModelDropdown = CreateRuntimeVoiceModelDropdown();
+            }
+        }
+
+        private Transform ResolveUiParent()
+        {
+            if (settingsPanel != null && settingsPanel.transform != null)
+            {
+                return settingsPanel.transform;
+            }
+            return transform;
+        }
+
+        private Slider CreateRuntimeZoomSlider(string objectName, string labelText, Vector2 anchoredPosition)
+        {
+            Transform parent = ResolveUiParent();
+
+            GameObject root = new GameObject(objectName, typeof(RectTransform));
+            RectTransform rootRect = root.GetComponent<RectTransform>();
+            rootRect.SetParent(parent, false);
+            rootRect.anchorMin = new Vector2(1f, 0f);
+            rootRect.anchorMax = new Vector2(1f, 0f);
+            rootRect.pivot = new Vector2(1f, 0f);
+            rootRect.sizeDelta = new Vector2(200f, 28f);
+            rootRect.anchoredPosition = anchoredPosition;
+
+            GameObject bg = new GameObject("Background", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            RectTransform bgRect = bg.GetComponent<RectTransform>();
+            bgRect.SetParent(rootRect, false);
+            bgRect.anchorMin = Vector2.zero;
+            bgRect.anchorMax = Vector2.one;
+            bgRect.offsetMin = Vector2.zero;
+            bgRect.offsetMax = Vector2.zero;
+            bg.GetComponent<Image>().color = new Color(0.12f, 0.1f, 0.2f, 0.9f);
+
+            GameObject fillArea = new GameObject("Fill Area", typeof(RectTransform));
+            RectTransform fillAreaRect = fillArea.GetComponent<RectTransform>();
+            fillAreaRect.SetParent(rootRect, false);
+            fillAreaRect.anchorMin = new Vector2(0f, 0f);
+            fillAreaRect.anchorMax = new Vector2(1f, 1f);
+            fillAreaRect.offsetMin = new Vector2(8f, 8f);
+            fillAreaRect.offsetMax = new Vector2(-8f, -8f);
+
+            GameObject fill = new GameObject("Fill", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            RectTransform fillRect = fill.GetComponent<RectTransform>();
+            fillRect.SetParent(fillAreaRect, false);
+            fillRect.anchorMin = new Vector2(0f, 0f);
+            fillRect.anchorMax = new Vector2(1f, 1f);
+            fillRect.offsetMin = Vector2.zero;
+            fillRect.offsetMax = Vector2.zero;
+            fill.GetComponent<Image>().color = new Color(0.95f, 0.69f, 0.25f, 1f);
+
+            GameObject handle = new GameObject("Handle", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            RectTransform handleRect = handle.GetComponent<RectTransform>();
+            handleRect.SetParent(rootRect, false);
+            handleRect.sizeDelta = new Vector2(14f, 24f);
+            handle.GetComponent<Image>().color = Color.white;
+
+            Slider slider = root.AddComponent<Slider>();
+            slider.targetGraphic = handle.GetComponent<Image>();
+            slider.fillRect = fillRect;
+            slider.handleRect = handleRect;
+            slider.direction = Slider.Direction.LeftToRight;
+            slider.minValue = 0f;
+            slider.maxValue = 1f;
+            slider.SetValueWithoutNotify(0f);
+
+            GameObject labelObj = new GameObject("Label", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
+            RectTransform labelRect = labelObj.GetComponent<RectTransform>();
+            labelRect.SetParent(rootRect, false);
+            labelRect.anchorMin = new Vector2(0f, 1f);
+            labelRect.anchorMax = new Vector2(0f, 1f);
+            labelRect.pivot = new Vector2(0f, 0f);
+            labelRect.anchoredPosition = new Vector2(0f, 6f);
+            labelRect.sizeDelta = new Vector2(100f, 20f);
+            TextMeshProUGUI label = labelObj.GetComponent<TextMeshProUGUI>();
+            label.text = labelText;
+            label.fontSize = 14f;
+            label.color = new Color(1f, 0.92f, 0.72f, 1f);
+
+            return slider;
+        }
+
+        private TMP_Dropdown CreateRuntimeVoiceModelDropdown()
+        {
+            Transform parent = ResolveUiParent();
+            var resources = new TMP_DefaultControls.Resources();
+            GameObject dropdownObject = TMP_DefaultControls.CreateDropdown(resources);
+            dropdownObject.name = "VoiceModelDropdown";
+
+            RectTransform rect = dropdownObject.GetComponent<RectTransform>();
+            rect.SetParent(parent, false);
+            rect.anchorMin = new Vector2(1f, 0f);
+            rect.anchorMax = new Vector2(1f, 0f);
+            rect.pivot = new Vector2(1f, 0f);
+            rect.anchoredPosition = new Vector2(-240f, -164f);
+            rect.sizeDelta = new Vector2(230f, 34f);
+
+            return dropdownObject.GetComponent<TMP_Dropdown>();
         }
 
         private Button CreateRuntimePoseButton()
@@ -297,6 +472,13 @@ namespace AICompanion.UI
             if (elevenLabsApiKeyInput != null) elevenLabsApiKeyInput.text = currentConfig.elevenLabsApiKey;
             if (elevenLabsVoiceIdInput != null) elevenLabsVoiceIdInput.text = currentConfig.elevenLabsVoiceId;
             if (localModeToggle != null) localModeToggle.isOn = currentConfig.isLocalMode;
+            if (voiceModelDropdown != null)
+            {
+                voiceModelDropdown.ClearOptions();
+                voiceModelDropdown.AddOptions(VoiceModels);
+                int selected = Mathf.Max(0, VoiceModels.IndexOf(string.IsNullOrEmpty(currentConfig.elevenLabsModelId) ? "eleven_multilingual_v2" : currentConfig.elevenLabsModelId));
+                voiceModelDropdown.SetValueWithoutNotify(selected);
+            }
         }
 
         private void HandleCloseSettings()
@@ -307,6 +489,11 @@ namespace AICompanion.UI
             currentConfig.elevenLabsApiKey = elevenLabsApiKeyInput.text;
             currentConfig.elevenLabsVoiceId = elevenLabsVoiceIdInput.text;
             currentConfig.isLocalMode = localModeToggle.isOn;
+            if (voiceModelDropdown != null)
+            {
+                int idx = voiceModelDropdown.value;
+                currentConfig.elevenLabsModelId = idx >= 0 && idx < VoiceModels.Count ? VoiceModels[idx] : "eleven_multilingual_v2";
+            }
             currentConfig.Save();
 
             settingsPanel.SetActive(false);
@@ -341,7 +528,81 @@ namespace AICompanion.UI
         public void AppendLog(string sender, string message)
         {
             string color = sender == "AI" ? "#FFC107" : (sender == "System" ? "#00BCD4" : "#4CAF50");
-            chatLogText.text += $"\n<b><color={color}>{sender}:</color></b> {message}";
+            chatLines.Add($"\n<mark=#161028CC><b><color={color}>{sender}:</color></b> {message}</mark>");
+            RefreshChatLog();
+        }
+
+        public void StartAISpeechTyping(string fullMessage, float durationSeconds)
+        {
+            if (aiTypingCoroutine != null)
+            {
+                StopCoroutine(aiTypingCoroutine);
+            }
+
+            activeAiLineIndex = chatLines.Count;
+            chatLines.Add("\n<mark=#161028CC><b><color=#FFC107>AI:</color></b> </mark>");
+            RefreshChatLog();
+            aiTypingCoroutine = StartCoroutine(TypeAIOverTime(fullMessage, Mathf.Max(0.6f, durationSeconds)));
+        }
+
+        public void CompleteAISpeechTyping(string finalMessage)
+        {
+            if (aiTypingCoroutine != null)
+            {
+                StopCoroutine(aiTypingCoroutine);
+                aiTypingCoroutine = null;
+            }
+
+            if (activeAiLineIndex >= 0 && activeAiLineIndex < chatLines.Count)
+            {
+                chatLines[activeAiLineIndex] = $"\n<mark=#161028CC><b><color=#FFC107>AI:</color></b> {finalMessage}</mark>";
+                activeAiLineIndex = -1;
+                RefreshChatLog();
+            }
+        }
+
+        private IEnumerator TypeAIOverTime(string fullMessage, float durationSeconds)
+        {
+            float startTime = Time.unscaledTime;
+            int maxChars = fullMessage.Length;
+
+            while (true)
+            {
+                float elapsed = Time.unscaledTime - startTime;
+                float t = Mathf.Clamp01(elapsed / durationSeconds);
+                int chars = Mathf.Clamp(Mathf.RoundToInt(maxChars * t), 0, maxChars);
+                string typed = fullMessage.Substring(0, chars);
+
+                if (activeAiLineIndex >= 0 && activeAiLineIndex < chatLines.Count)
+                {
+                    chatLines[activeAiLineIndex] = $"\n<mark=#161028CC><b><color=#FFC107>AI:</color></b> <mspace=0.55em>{typed}</mspace></mark>";
+                    RefreshChatLog();
+                }
+
+                if (chars >= maxChars)
+                {
+                    break;
+                }
+
+                yield return null;
+            }
+
+            aiTypingCoroutine = null;
+        }
+
+        private void RefreshChatLog()
+        {
+            if (chatLogText == null)
+            {
+                return;
+            }
+
+            StringBuilder sb = new StringBuilder();
+            foreach (string line in chatLines)
+            {
+                sb.Append(line);
+            }
+            chatLogText.text = sb.ToString();
         }
 
         public void SetWebcamTexture(Texture2D texture)

@@ -29,6 +29,7 @@ namespace AICompanion.Services
 
         public void SetExpression(string expressionName, float value) { }
         public void PlayMouthVolume(float volume) { }
+        public void SetSpeaking(bool speaking) { }
         public void SetAnimationEnabled(bool enabled) { }
         public void CyclePose() { }
 
@@ -37,4 +38,3 @@ namespace AICompanion.Services
         public void SetPose(int index) { }
     }
 }
-

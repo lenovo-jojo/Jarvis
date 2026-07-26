@@ -233,6 +233,7 @@ namespace AICompanion.Services
         private bool isBlinking;
         private float blinkTimer;
         private float blinkInterval = 4.0f;
+        private bool isSpeaking;
 
         private void Start()
         {
@@ -527,8 +528,8 @@ namespace AICompanion.Services
 
             HandleDragging();
 
-            // Before a folder pose is selected, keep the avatar facing the camera.
-            if (Camera.main != null && currentPoseIndex < 0)
+            // Keep the avatar generally oriented toward the camera.
+            if (Camera.main != null)
             {
                 Vector3 lookPos = Camera.main.transform.position;
                 lookPos.y = currentAvatarGo.transform.position.y;
@@ -539,7 +540,7 @@ namespace AICompanion.Services
                     currentAvatarGo.transform.rotation = Quaternion.Slerp(
                         currentAvatarGo.transform.rotation,
                         targetRotation,
-                        Time.deltaTime * 8f
+                        Time.deltaTime * 6f
                     );
                 }
             }
@@ -656,6 +657,7 @@ namespace AICompanion.Services
             // Never overwrite humanoid bones here while a VRMA is connected.
             if (activeVrmaAnimation != null)
             {
+                ApplyExpressiveLookAndMotion();
                 return;
             }
 
@@ -675,6 +677,8 @@ namespace AICompanion.Services
 
                 poseHandler.SetHumanPose(ref hp);
             }
+
+            ApplyExpressiveLookAndMotion();
         }
 
         public void CreateProceduralCompanion()
@@ -1080,6 +1084,15 @@ namespace AICompanion.Services
             }
         }
 
+        public void SetSpeaking(bool speaking)
+        {
+            isSpeaking = speaking;
+            if (!speaking)
+            {
+                SetExpression("neutral", 1f);
+            }
+        }
+
         public void SetAnimationEnabled(bool enabled)
         {
             isAnimationEnabled = enabled;
@@ -1243,41 +1256,79 @@ namespace AICompanion.Services
                 {
                     string name = fallbackFaceRenderer.sharedMesh.GetBlendShapeName(i).ToLower();
 
-                    // Vowel A (Mouth Open) mappings
                     if (fallbackMouthBlendshapeIdx == -1 && (name == "a" || name == "aa" || name == "vowel_a" || name.Contains("preset_a") || name.Contains("mouth_open") || name.Contains("jaw_open") || name.Contains("mouth_a") || name.Contains("ch_a")))
                     {
                         fallbackMouthBlendshapeIdx = i;
                         Debug.Log($"  Mapped Fallback Mouth A Blendshape: index {i} ('{name}')");
                     }
 
-                    // Eye Blink mappings
                     if (fallbackBlinkBlendshapeIdx == -1 && (name.Contains("blink") || name.Contains("eye_close") || name.Contains("close_eye") || name == "blink_l" || name == "blink_r"))
                     {
                         fallbackBlinkBlendshapeIdx = i;
                         Debug.Log($"  Mapped Fallback Eye Blink Blendshape: index {i} ('{name}')");
                     }
 
-                    // Emotion happy mappings
                     if (fallbackJoyBlendshapeIdx == -1 && (name.Contains("joy") || name.Contains("happy") || name.Contains("smile") || name.Contains("fun")))
                     {
                         fallbackJoyBlendshapeIdx = i;
                         Debug.Log($"  Mapped Fallback Happy Blendshape: index {i} ('{name}')");
                     }
 
-                    // Emotion sad mappings
                     if (fallbackSorrowBlendshapeIdx == -1 && (name.Contains("sorrow") || name.Contains("sad") || name.Contains("cry")))
                     {
                         fallbackSorrowBlendshapeIdx = i;
                         Debug.Log($"  Mapped Fallback Sad Blendshape: index {i} ('{name}')");
                     }
 
-                    // Emotion angry mappings
                     if (fallbackAngryBlendshapeIdx == -1 && (name.Contains("angry") || name.Contains("mad") || name.Contains("rage")))
                     {
                         fallbackAngryBlendshapeIdx = i;
                         Debug.Log($"  Mapped Fallback Angry Blendshape: index {i} ('{name}')");
                     }
                 }
+            }
+        }
+
+        private void ApplyExpressiveLookAndMotion()
+        {
+            if (!isUsingCustomVrm || !isAnimationEnabled || Camera.main == null)
+            {
+                return;
+            }
+
+            if (headBone != null)
+            {
+                Vector3 direction = Camera.main.transform.position - headBone.position;
+                if (direction.sqrMagnitude > 0.0001f)
+                {
+                    Quaternion lookRot = Quaternion.LookRotation(direction);
+                    headBone.rotation = Quaternion.Slerp(headBone.rotation, lookRot, Time.deltaTime * 5f);
+                }
+            }
+
+            if (spineBone != null)
+            {
+                float sway = Mathf.Sin(idleTime * (isSpeaking ? 7.5f : 2.5f)) * (isSpeaking ? 1.8f : 0.55f);
+                spineBone.localRotation = Quaternion.Slerp(
+                    spineBone.localRotation,
+                    spineInitialRot * Quaternion.Euler(0f, sway, 0f),
+                    Time.deltaTime * 6f
+                );
+            }
+
+            if (leftShoulderBone != null && rightShoulderBone != null)
+            {
+                float shoulder = Mathf.Sin(idleTime * (isSpeaking ? 8f : 3f)) * (isSpeaking ? 2.5f : 0.75f);
+                leftShoulderBone.localRotation = Quaternion.Slerp(
+                    leftShoulderBone.localRotation,
+                    leftShoulderInitialRot * Quaternion.Euler(shoulder, 0f, 0f),
+                    Time.deltaTime * 6f
+                );
+                rightShoulderBone.localRotation = Quaternion.Slerp(
+                    rightShoulderBone.localRotation,
+                    rightShoulderInitialRot * Quaternion.Euler(-shoulder, 0f, 0f),
+                    Time.deltaTime * 6f
+                );
             }
         }
     }

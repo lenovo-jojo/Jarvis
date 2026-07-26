@@ -4,6 +4,7 @@ using UnityEngine;
 using AICompanion.Core;
 using AICompanion.Services;
 using AICompanion.UI;
+using System.Collections;
 
 namespace AICompanion.Core
 {
@@ -24,6 +25,8 @@ namespace AICompanion.Core
         private bool useScreenContext;
         private readonly List<string> availablePoses = new List<string>();
         private int selectedPoseIndex = -1;
+        private Coroutine speechLifecycleCoroutine;
+        private CompanionCamera companionCamera;
 
         private void Awake()
         {
@@ -72,6 +75,9 @@ namespace AICompanion.Core
             companionUI.OnMicToggleChanged += HandleMicToggle;
             companionUI.OnCyclePoseRequested += HandleCyclePose;
             companionUI.OnPoseSelected += HandlePoseSelected;
+            companionUI.OnZoomInSliderChanged += HandleZoomInSliderChanged;
+            companionUI.OnZoomOutSliderChanged += HandleZoomOutSliderChanged;
+            companionCamera = Camera.main != null ? Camera.main.GetComponent<CompanionCamera>() : null;
 
             // Populate Pose Dropdown
             if (vrmService != null)
@@ -217,6 +223,8 @@ namespace AICompanion.Core
             {
                 audioSource.Stop();
                 isSpeaking = false;
+                vrmService.SetSpeaking(false);
+                vrmService.SetExpression("neutral", 1.0f);
             }
 
             companionUI.AppendLog("You", message);
@@ -233,7 +241,6 @@ namespace AICompanion.Core
                 webcamFrame,
                 onComplete: (aiText) =>
                 {
-                    companionUI.AppendLog("AI", aiText);
                     TriggerExpressionFromText(aiText);
                     SpeakText(aiText);
                 },
@@ -248,19 +255,43 @@ namespace AICompanion.Core
         private void SpeakText(string text)
         {
             isSpeaking = true;
+            vrmService.SetSpeaking(true);
             StartCoroutine(voiceService.GenerateSpeechCoroutine(
                 text,
                 onComplete: (clip) =>
                 {
                     audioSource.clip = clip;
                     audioSource.Play();
+                    companionUI.StartAISpeechTyping(text, clip.length);
+                    if (speechLifecycleCoroutine != null)
+                    {
+                        StopCoroutine(speechLifecycleCoroutine);
+                    }
+                    speechLifecycleCoroutine = StartCoroutine(TrackSpeechLifecycle(text));
                 },
                 onError: (error) =>
                 {
                     companionUI.AppendLog("System", $"Speech Generation Failed: {error}");
                     isSpeaking = false;
+                    vrmService.SetSpeaking(false);
+                    vrmService.SetExpression("neutral", 1.0f);
+                    companionUI.CompleteAISpeechTyping(text);
                 }
             ));
+        }
+
+        private IEnumerator TrackSpeechLifecycle(string finalText)
+        {
+            while (audioSource != null && audioSource.isPlaying)
+            {
+                yield return null;
+            }
+
+            isSpeaking = false;
+            vrmService.SetSpeaking(false);
+            vrmService.SetExpression("neutral", 1.0f);
+            companionUI.CompleteAISpeechTyping(finalText);
+            speechLifecycleCoroutine = null;
         }
 
         private void TriggerExpressionFromText(string text)
@@ -298,6 +329,30 @@ namespace AICompanion.Core
                 {
                     companionUI.AppendLog("System", $"Avatar Load Error: {error}");
                 }
+
+                private void HandleZoomInSliderChanged(float value)
+                {
+                    if (companionCamera == null && Camera.main != null)
+                    {
+                        companionCamera = Camera.main.GetComponent<CompanionCamera>();
+                    }
+                    if (companionCamera != null)
+                    {
+                        companionCamera.SetZoomInSlider(value);
+                    }
+                }
+
+                private void HandleZoomOutSliderChanged(float value)
+                {
+                    if (companionCamera == null && Camera.main != null)
+                    {
+                        companionCamera = Camera.main.GetComponent<CompanionCamera>();
+                    }
+                    if (companionCamera != null)
+                    {
+                        companionCamera.SetZoomOutSlider(value);
+                    }
+                }
             );
         }
 
@@ -313,6 +368,8 @@ namespace AICompanion.Core
                 companionUI.OnMicToggleChanged -= HandleMicToggle;
                 companionUI.OnCyclePoseRequested -= HandleCyclePose;
                 companionUI.OnPoseSelected -= HandlePoseSelected;
+                companionUI.OnZoomInSliderChanged -= HandleZoomInSliderChanged;
+                companionUI.OnZoomOutSliderChanged -= HandleZoomOutSliderChanged;
             }
         }
     }
