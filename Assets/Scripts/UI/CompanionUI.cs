@@ -5,6 +5,7 @@ using TMPro;
 using AICompanion.Core;
 using System.Collections;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Text;
 
 namespace AICompanion.UI
@@ -51,6 +52,7 @@ namespace AICompanion.UI
         public event Action<bool> OnAnimationToggleChanged;
         public event Action<bool> OnMicToggleChanged;
         public event Action OnCyclePoseRequested;
+        public event Action OnSaveFrameRequested;
         public event Action<int> OnPoseSelected;
         public event Action<float> OnZoomInSliderChanged;
         public event Action<float> OnZoomOutSliderChanged;
@@ -64,7 +66,7 @@ namespace AICompanion.UI
         private readonly List<string> chatLines = new List<string>();
         private Coroutine aiTypingCoroutine;
         private int activeAiLineIndex = -1;
-        private static readonly List<string> VoiceModels = new List<string> { "eleven_multilingual_v2", "animalesse.js" };
+        private static readonly List<string> VoiceModels = new List<string> { "eleven_multilingual_v2", "animalese.js" };
 
         private void Start()
         {
@@ -80,7 +82,14 @@ namespace AICompanion.UI
             if (messageInputField != null)
                 messageInputField.onSubmit.AddListener(delegate { HandleSend(); });
             if (openSettingsButton != null)
-                openSettingsButton.onClick.AddListener(() => settingsPanel.SetActive(true));
+            {
+                openSettingsButton.onClick.AddListener(() =>
+                {
+                    currentConfig = ServiceConfig.Load();
+                    PopulateSettingsUI();
+                    settingsPanel.SetActive(true);
+                });
+            }
             if (closeSettingsButton != null)
                 closeSettingsButton.onClick.AddListener(HandleCloseSettings);
             if (importVrmButton != null)
@@ -309,6 +318,7 @@ namespace AICompanion.UI
             rect.anchoredPosition = new Vector2(-240f, -164f);
             rect.sizeDelta = new Vector2(230f, 34f);
 
+            DeferDropdownActivation(dropdownObject);
             return dropdownObject.GetComponent<TMP_Dropdown>();
         }
 
@@ -504,7 +514,33 @@ namespace AICompanion.UI
                 }
             }
 
+            DeferDropdownActivation(dropdownGo);
             return dropdown;
+        }
+
+        private void DeferDropdownActivation(GameObject dropdownObject)
+        {
+            dropdownObject.SetActive(false);
+            StartCoroutine(ActivateDropdownNextFrame(dropdownObject));
+        }
+
+        private IEnumerator ActivateDropdownNextFrame(GameObject dropdownObject)
+        {
+            yield return null;
+            if (dropdownObject != null)
+            {
+                dropdownObject.SetActive(true);
+
+                // TMP_DefaultControls can create a dropdown during another
+                // component's Start before TMP_Dropdown.Start is scheduled.
+                // Ensure its private tween runner exists before the first click.
+                TMP_Dropdown dropdown =
+                    dropdownObject.GetComponent<TMP_Dropdown>();
+                MethodInfo startMethod = typeof(TMP_Dropdown).GetMethod(
+                    "Start",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                startMethod?.Invoke(dropdown, null);
+            }
         }
 
         private void Update()
@@ -518,10 +554,21 @@ namespace AICompanion.UI
             {
                 OnCyclePoseRequested?.Invoke();
             }
+
+            if (!IsInputFocused && (UnityEngine.InputSystem.Keyboard.current.kKey.wasPressedThisFrame || UnityEngine.InputSystem.Keyboard.current.sKey.wasPressedThisFrame))
+            {
+                OnSaveFrameRequested?.Invoke();
+            }
         }
 
         private void OnGUI()
         {
+            // Always render the Save Load State button at the top right for convenience
+            if (GUI.Button(new Rect(Screen.width - 200f, 16f, 180f, 42f), "Save Load State"))
+            {
+                OnSaveFrameRequested?.Invoke();
+            }
+
             bool hasVisiblePoseControl =
                 (poseDropdown != null && poseDropdown.gameObject.activeInHierarchy) ||
                 (runtimePoseButton != null && runtimePoseButton.gameObject.activeInHierarchy);

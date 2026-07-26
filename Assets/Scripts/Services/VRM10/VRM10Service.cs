@@ -12,6 +12,7 @@ using VRM;
 
 namespace AICompanion.Services
 {
+    [DefaultExecutionOrder(11000)]
     public class VRM10Service : MonoBehaviour, IVRMService
     {
         [Serializable]
@@ -132,6 +133,8 @@ namespace AICompanion.Services
         private Vrm10Instance vrm10Instance;
         private RuntimeGltfInstance activeVrmaInstance;
         private Vrm10AnimationInstance activeVrmaAnimation;
+        private int appliedVpdPoseIndex = -1;
+        private bool hasReportedVrmaRetargetFailure;
 
         // HumanPose handling fallback
         private HumanPoseHandler poseHandler;
@@ -353,6 +356,10 @@ namespace AICompanion.Services
         private float vrmBlinkInterval = 3.0f;
         private float vrmBlinkDuration = 0.15f;
         private bool isVrmBlinking;
+        private float currentBlinkWeight;
+        private float currentLipSyncWeight;
+        private ExpressionKey currentExpressionKey = ExpressionKey.Neutral;
+        private float currentExpressionWeight = 1f;
 
         private void Start()
         {
@@ -519,6 +526,8 @@ namespace AICompanion.Services
             }
 
             currentPoseIndex = Mathf.Clamp(index, 0, loadedOptionalPoses.Count - 1);
+            appliedVpdPoseIndex = -1;
+            hasReportedVrmaRetargetFailure = false;
             CustomPose cp = loadedOptionalPoses[currentPoseIndex];
 
             Debug.Log(
@@ -528,31 +537,6 @@ namespace AICompanion.Services
             DestroyActiveLightProps();
             DestroyActiveNormalProps();
             DestroyActiveVrma();
-
-            // Prefer static VPD pose data when available. This is more robust across
-            // mixed avatar rigs and avoids runtime control-rig conflicts from some VRMA packs.
-            if (poseHandler != null &&
-                cp.muscles != null &&
-                cp.muscles.Length > 0)
-            {
-                HumanPose hp = new HumanPose
-                {
-                    bodyPosition = cp.bodyPosition,
-                    bodyRotation = cp.bodyRotation,
-                    muscles = cp.muscles
-                };
-
-                poseHandler.SetHumanPose(ref hp);
-
-                if (vrm10Instance != null && vrm10Instance.Runtime != null)
-                {
-                    vrm10Instance.Runtime.Process();
-                }
-
-                Debug.Log($"[VRMService] Applied VPD pose: {cp.name}");
-                ApplyPoseSceneContext(cp);
-                return;
-            }
 
             if (!string.IsNullOrEmpty(cp.vrmaPath) &&
                 File.Exists(cp.vrmaPath))
@@ -607,6 +591,28 @@ namespace AICompanion.Services
                         $"[VRMService] Failed to load VRMA for " +
                         $"'{cp.name}': {ex}");
                 }
+            }
+
+            // Fall back to the legacy VPD pose only when no compatible native
+            // VRMA is available. Reapplying VPD bones every frame can fight
+            // spring physics on avatars other than the pose author's model.
+            if (poseHandler != null &&
+                cp.muscles != null &&
+                cp.muscles.Length > 0)
+            {
+                HumanPose hp = new HumanPose
+                {
+                    bodyPosition = cp.bodyPosition,
+                    bodyRotation = cp.bodyRotation,
+                    muscles = cp.muscles
+                };
+
+                poseHandler.SetHumanPose(ref hp);
+                appliedVpdPoseIndex = currentPoseIndex;
+
+                Debug.Log($"[VRMService] Applied fallback VPD pose: {cp.name}");
+                ApplyPoseSceneContext(cp);
+                return;
             }
 
             Debug.LogWarning(
@@ -703,12 +709,11 @@ namespace AICompanion.Services
                             isVrmBlinking = false;
                             vrmBlinkTimer = 0f;
                             vrmBlinkInterval = UnityEngine.Random.Range(2.5f, 5.5f);
-                            vrm10Instance.Runtime.Expression.SetWeight(ExpressionKey.Blink, 0f);
+                            currentBlinkWeight = 0f;
                         }
                         else
                         {
-                            float blinkWeight = Mathf.Sin(progress * Mathf.PI);
-                            vrm10Instance.Runtime.Expression.SetWeight(ExpressionKey.Blink, blinkWeight);
+                            currentBlinkWeight = Mathf.Sin(progress * Mathf.PI);
                         }
                     }
                     else if (vrmBlinkTimer >= vrmBlinkInterval)
@@ -825,14 +830,14 @@ namespace AICompanion.Services
             if (spineBone != null)
             {
                 // Breathing cycle: sine wave with period of ~3.2 seconds
-                float breathValue = Mathf.Sin(Time.time * (2f * Mathf.PI / 3.2f)); 
-                
+                float breathValue = Mathf.Sin(Time.time * (2f * Mathf.PI / 3.2f));
+
                 // Breath value is -1 to 1. Map to a subtle rotation offset (pitch/tilt)
                 float breathPitch = breathValue * 1.0f;
                 // Add a very subtle expansion (scale) as well!
                 spineBone.localScale = new Vector3(
-                    1f + breathValue * 0.005f, 
-                    1f + breathValue * 0.002f, 
+                    1f + breathValue * 0.005f,
+                    1f + breathValue * 0.002f,
                     1f + breathValue * 0.01f
                 );
 
@@ -847,18 +852,25 @@ namespace AICompanion.Services
             }
 
             // 2. Dynamic blanket alignment (picnic blanket is at Y = 0.01f)
-            Bounds bounds = GetAvatarBounds();
-            float targetMinY = 0.01f;
-            float currentMinY = bounds.min.y;
-            float diff = targetMinY - currentMinY;
-            if (Mathf.Abs(diff) > 0.001f)
+            if (!isDragging)
             {
-                currentAvatarGo.transform.position += new Vector3(0f, diff, 0f);
+                Bounds bounds = GetAvatarBounds();
+                float targetMinY = 0.01f;
+                float currentMinY = bounds.min.y;
+                float diff = targetMinY - currentMinY;
+
+                // Use a stable 0.025f (2.5cm) threshold to avoid breathing/LookAt-driven high-frequency jitter.
+                // Significant adjustments (like pose changes) will still align instantly.
+                if (Mathf.Abs(diff) > 0.025f)
+                {
+                    currentAvatarGo.transform.position += new Vector3(0f, diff, 0f);
+                }
             }
 
             if (currentPoseIndex < 0 ||
                 currentPoseIndex >= loadedOptionalPoses.Count)
             {
+                ProcessVrmRuntime();
                 return;
             }
 
@@ -866,7 +878,7 @@ namespace AICompanion.Services
             // Never overwrite humanoid bones here while a VRMA is connected.
             if (activeVrmaAnimation != null)
             {
-                ApplyExpressiveLookAndMotion();
+                ProcessVrmRuntime();
                 return;
             }
 
@@ -875,7 +887,8 @@ namespace AICompanion.Services
             // Static VPD fallback must be reapplied after other animation updates.
             if (poseHandler != null &&
                 cp.muscles != null &&
-                cp.muscles.Length > 0)
+                cp.muscles.Length > 0 &&
+                appliedVpdPoseIndex != currentPoseIndex)
             {
                 HumanPose hp = new HumanPose
                 {
@@ -885,14 +898,172 @@ namespace AICompanion.Services
                 };
 
                 poseHandler.SetHumanPose(ref hp);
-
-                if (vrm10Instance != null && vrm10Instance.Runtime != null)
-                {
-                    vrm10Instance.Runtime.Process();
-                }
+                appliedVpdPoseIndex = currentPoseIndex;
             }
 
             ApplyExpressiveLookAndMotion();
+            ProcessVrmRuntime();
+        }
+
+        private void ProcessVrmRuntime()
+        {
+            if (vrm10Instance != null && vrm10Instance.Runtime != null)
+            {
+                if (Camera.main != null)
+                {
+                    vrm10Instance.LookAtTargetType =
+                        VRM10ObjectLookAt.LookAtTargetTypes.SpecifiedTransform;
+                    vrm10Instance.LookAtTarget = Camera.main.transform;
+                }
+
+                try
+                {
+                    vrm10Instance.Runtime.Process();
+                }
+                catch (NullReferenceException ex)
+                    when (activeVrmaAnimation != null)
+                {
+                    if (!hasReportedVrmaRetargetFailure)
+                    {
+                        Debug.LogWarning(
+                            "[VRMService] VRMA retargeting failed for this avatar. " +
+                            "Falling back to its static VPD pose while preserving " +
+                            "face, eye, lip-sync, and spring updates.\n" + ex);
+                        hasReportedVrmaRetargetFailure = true;
+                    }
+
+                    vrm10Instance.Runtime.VrmAnimation = null;
+                    activeVrmaAnimation = null;
+
+                    if (activeVrmaInstance != null)
+                    {
+                        Destroy(activeVrmaInstance.gameObject);
+                        activeVrmaInstance = null;
+                    }
+
+                    ApplyCurrentVpdFallback();
+                    vrm10Instance.Runtime.Process();
+                }
+
+                ApplyFacialOverrides();
+            }
+        }
+
+        private void ApplyCurrentVpdFallback()
+        {
+            if (currentPoseIndex < 0 ||
+                currentPoseIndex >= loadedOptionalPoses.Count ||
+                poseHandler == null)
+            {
+                return;
+            }
+
+            CustomPose cp = loadedOptionalPoses[currentPoseIndex];
+            if (cp.muscles == null || cp.muscles.Length == 0)
+            {
+                return;
+            }
+
+            HumanPose hp = new HumanPose
+            {
+                bodyPosition = cp.bodyPosition,
+                bodyRotation = cp.bodyRotation,
+                muscles = cp.muscles
+            };
+
+            poseHandler.SetHumanPose(ref hp);
+            appliedVpdPoseIndex = currentPoseIndex;
+        }
+
+        private void ApplyFacialOverrides()
+        {
+            if (vrm10Instance == null ||
+                vrm10Instance.Runtime == null ||
+                vrm10Instance.Runtime.Expression == null)
+            {
+                return;
+            }
+
+            var runtime = vrm10Instance.Runtime;
+
+            runtime.Expression.SetWeight(ExpressionKey.Happy, 0f);
+            runtime.Expression.SetWeight(ExpressionKey.Sad, 0f);
+            runtime.Expression.SetWeight(ExpressionKey.Angry, 0f);
+            runtime.Expression.SetWeight(ExpressionKey.Relaxed, 0f);
+            runtime.Expression.SetWeight(ExpressionKey.Surprised, 0f);
+            runtime.Expression.SetWeight(ExpressionKey.Neutral, 0f);
+            runtime.Expression.SetWeight(
+                currentExpressionKey,
+                currentExpressionWeight);
+            runtime.Expression.SetWeight(
+                ExpressionKey.Blink,
+                currentBlinkWeight);
+            runtime.Expression.SetWeight(
+                ExpressionKey.Aa,
+                currentLipSyncWeight);
+
+            // Refresh only expression output after the VRMA body pass. UniVRM's
+            // Process method is internal, so invoke that face-only method without
+            // advancing body retargeting or spring physics a second time.
+            System.Reflection.MethodInfo expressionProcess =
+                typeof(Vrm10RuntimeExpression).GetMethod(
+                    "Process",
+                    System.Reflection.BindingFlags.Instance |
+                    System.Reflection.BindingFlags.NonPublic);
+            expressionProcess?.Invoke(
+                runtime.Expression,
+                new object[] { runtime.LookAt.EyeDirection });
+        }
+
+        private static void SanitizeSpringBones(Vrm10Instance instance)
+        {
+            if (instance == null || instance.SpringBone == null)
+            {
+                return;
+            }
+
+            var initialStates = instance.DefaultTransformStates;
+            int removedJoints = 0;
+            int removedSprings = 0;
+
+            for (int springIndex = instance.SpringBone.Springs.Count - 1;
+                 springIndex >= 0;
+                 springIndex--)
+            {
+                Vrm10InstanceSpringBone.Spring spring =
+                    instance.SpringBone.Springs[springIndex];
+
+                if (spring == null)
+                {
+                    instance.SpringBone.Springs.RemoveAt(springIndex);
+                    removedSprings++;
+                    continue;
+                }
+
+                removedJoints += spring.Joints.RemoveAll(joint =>
+                    joint == null ||
+                    joint.transform == null ||
+                    !initialStates.ContainsKey(joint.transform));
+
+                if (spring.Joints.Count < 2)
+                {
+                    instance.SpringBone.Springs.RemoveAt(springIndex);
+                    removedSprings++;
+                }
+            }
+
+            if (removedJoints > 0 || removedSprings > 0)
+            {
+                Debug.Log(
+                    $"[VRMService] Removed {removedJoints} invalid spring joints " +
+                    $"and {removedSprings} unusable spring chains.");
+            }
+
+            bool rebuilt = instance.Runtime.SpringBone.ReconstructSpringBone();
+            Debug.Log(
+                rebuilt
+                    ? "[VRMService] Rebuilt spring physics after avatar import."
+                    : "[VRMService] Spring physics rebuild was already in progress.");
         }
 
         public void CreateProceduralCompanion()
@@ -1041,6 +1212,8 @@ namespace AICompanion.Services
 
                 currentAvatarGo = vrm10Instance.gameObject;
                 currentAvatarGo.name = "CompanionAvatarVRM";
+                vrm10Instance.UpdateType = Vrm10Instance.UpdateTypes.None;
+                SanitizeSpringBones(vrm10Instance);
 
                 currentAvatarGo.transform.position = Vector3.zero;
                 currentAvatarGo.transform.rotation = Quaternion.identity;
@@ -1202,23 +1375,53 @@ namespace AICompanion.Services
                 Debug.Log(
                     "[VRMService] VRM 1.0 character loaded successfully.");
 
-                // Load default Feet Focus pose on load
-                int defaultPoseIdx = -1;
-                for (int i = 0; i < loadedOptionalPoses.Count; i++)
+                if (config.hasSavedFrame)
                 {
-                    if (loadedOptionalPoses[i].name.Equals("Feet Focus", StringComparison.OrdinalIgnoreCase))
+                    currentAvatarGo.transform.position = new Vector3(config.avatarPosX, config.avatarPosY, config.avatarPosZ);
+                    currentAvatarGo.transform.rotation = new Quaternion(config.avatarRotX, config.avatarRotY, config.avatarRotZ, config.avatarRotW);
+                    startPosition = currentAvatarGo.transform.position;
+
+                    int savedPoseIdx = -1;
+                    if (!string.IsNullOrEmpty(config.savedPoseName))
                     {
-                        defaultPoseIdx = i;
-                        break;
+                        for (int i = 0; i < loadedOptionalPoses.Count; i++)
+                        {
+                            if (loadedOptionalPoses[i].name.Equals(config.savedPoseName, StringComparison.OrdinalIgnoreCase))
+                            {
+                                savedPoseIdx = i;
+                                break;
+                            }
+                        }
                     }
-                }
-                if (defaultPoseIdx != -1)
-                {
-                    SetPose(defaultPoseIdx);
+                    if (savedPoseIdx != -1)
+                    {
+                        SetPose(savedPoseIdx);
+                    }
+                    else
+                    {
+                        currentPoseIndex = -1;
+                    }
                 }
                 else
                 {
-                    currentPoseIndex = -1;
+                    // Load default Feet Focus pose on load
+                    int defaultPoseIdx = -1;
+                    for (int i = 0; i < loadedOptionalPoses.Count; i++)
+                    {
+                        if (loadedOptionalPoses[i].name.Equals("Feet Focus", StringComparison.OrdinalIgnoreCase))
+                        {
+                            defaultPoseIdx = i;
+                            break;
+                        }
+                    }
+                    if (defaultPoseIdx != -1)
+                    {
+                        SetPose(defaultPoseIdx);
+                    }
+                    else
+                    {
+                        currentPoseIndex = -1;
+                    }
                 }
                 onLoaded?.Invoke(currentAvatarGo);
             }
@@ -1236,6 +1439,20 @@ namespace AICompanion.Services
             if (isUsingCustomVrm)
             {
                 string expLower = expressionName.ToLower();
+                currentExpressionWeight = Mathf.Clamp01(value);
+
+                if (expLower == "happy" || expLower == "joy")
+                    currentExpressionKey = ExpressionKey.Happy;
+                else if (expLower == "sad" || expLower == "sorrow")
+                    currentExpressionKey = ExpressionKey.Sad;
+                else if (expLower == "angry")
+                    currentExpressionKey = ExpressionKey.Angry;
+                else if (expLower == "relaxed")
+                    currentExpressionKey = ExpressionKey.Relaxed;
+                else if (expLower == "surprised")
+                    currentExpressionKey = ExpressionKey.Surprised;
+                else
+                    currentExpressionKey = ExpressionKey.Neutral;
 
                 if (vrm10Instance != null && vrm10Instance.Runtime != null && vrm10Instance.Runtime.Expression != null)
                 {
@@ -1332,6 +1549,7 @@ namespace AICompanion.Services
             if (isUsingCustomVrm)
             {
                 float weight = Mathf.Clamp01(volume * 2.0f);
+                currentLipSyncWeight = weight;
                 if (vrm10Instance != null && vrm10Instance.Runtime != null && vrm10Instance.Runtime.Expression != null)
                 {
                     vrm10Instance.Runtime.Expression.SetWeight(ExpressionKey.Aa, weight);
@@ -1358,6 +1576,7 @@ namespace AICompanion.Services
             isSpeaking = speaking;
             if (!speaking)
             {
+                currentLipSyncWeight = 0f;
                 SetExpression("neutral", 1f);
             }
         }
@@ -1430,10 +1649,10 @@ namespace AICompanion.Services
         private Bounds GetAvatarBounds()
         {
             if (currentAvatarGo == null) return new Bounds(Vector3.zero, Vector3.one);
-            
+
             Bounds bounds = new Bounds(currentAvatarGo.transform.position, Vector3.zero);
             bool hasBounds = false;
-            
+
             if (avatarRenderers != null && avatarRenderers.Count > 0)
             {
                 foreach (var r in avatarRenderers)
@@ -1452,12 +1671,12 @@ namespace AICompanion.Services
                     }
                 }
             }
-            
+
             if (!hasBounds)
             {
                 bounds = new Bounds(currentAvatarGo.transform.position, new Vector3(1f, 1.8f, 1f));
             }
-            
+
             return bounds;
         }
 
@@ -1485,16 +1704,16 @@ namespace AICompanion.Services
                 GameObject plant = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
                 plant.name = "GrassTuft_" + i;
                 Destroy(plant.GetComponent<Collider>()); // Avoid blocking clicks
-                
+
                 // Position randomly around the picnic blanket (blanket is at (0, 0, 2))
                 float angle = (float)(rand.NextDouble() * Math.PI * 2);
                 float radius = 1.0f + (float)(rand.NextDouble() * 4.0f);
                 float x = Mathf.Sin(angle) * radius;
                 float z = 2.0f + Mathf.Cos(angle) * radius;
-                
+
                 plant.transform.position = new Vector3(x, 0.15f, z);
                 plant.transform.localScale = new Vector3(0.04f + (float)rand.NextDouble() * 0.04f, 0.1f + (float)rand.NextDouble() * 0.2f, 0.04f + (float)rand.NextDouble() * 0.04f);
-                
+
                 Material plantMat = new Material(urpLitShader);
                 // Vary color slightly between lime green and deep forest green
                 float hueOffset = (float)rand.NextDouble() * 0.15f;
@@ -1508,7 +1727,7 @@ namespace AICompanion.Services
             blanket.name = "PicnicStage_Blanket";
             blanket.transform.position = new Vector3(0f, 0.01f, 2f); // Slightly above grass to avoid z-fighting
             blanket.transform.localScale = new Vector3(0.25f, 1f, 0.25f); // 2.5m x 2.5m blanket
-            
+
             // Red-and-White Checkered Pattern Texture
             Texture2D checkeredTex = new Texture2D(2, 2);
             checkeredTex.wrapMode = TextureWrapMode.Repeat;

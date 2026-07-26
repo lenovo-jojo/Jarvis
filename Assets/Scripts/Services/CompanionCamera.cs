@@ -1,6 +1,8 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.EventSystems;
+using AICompanion.Core;
+using TMPro;
 
 namespace AICompanion.Services
 {
@@ -39,10 +41,35 @@ namespace AICompanion.Services
         private Vector3 focusVelocity;
         private Vector3 smoothedFocusPos;
         private float smoothedFocusHeight = 1.8f;
+        private GameObject framedTarget;
+        private Vector3 stableLocalFocusPos;
+        private float stableFocusHeight = 1.8f;
 
         private void Awake()
         {
             cam = GetComponent<Camera>();
+        }
+
+        public float OrbitYaw => orbitYaw;
+        public float OrbitPitch => orbitPitch;
+        public float ZoomOffset => zoomOffset;
+        public Vector3 SceneOffset => sceneOffset;
+
+        private void Start()
+        {
+            ServiceConfig config = ServiceConfig.Load();
+            if (config != null && config.hasSavedFrame)
+            {
+                orbitYaw = config.camOrbitYaw;
+                orbitPitch = config.camOrbitPitch;
+                zoomOffset = config.camZoomOffset;
+                sceneOffset = new Vector3(config.camSceneOffsetX, config.camSceneOffsetY, config.camSceneOffsetZ);
+
+                transform.position = new Vector3(config.camPosX, config.camPosY, config.camPosZ);
+                transform.rotation = new Quaternion(config.camRotX, config.camRotY, config.camRotZ, config.camRotW);
+                currentTargetCamPos = transform.position;
+                isInitialized = true;
+            }
         }
 
         private void LateUpdate()
@@ -56,47 +83,15 @@ namespace AICompanion.Services
 
             if (targetGo == null) return;
 
-            // 2. Compute dynamic bounding box of all active renderers
-            Bounds bounds = new Bounds(targetGo.transform.position, Vector3.zero);
-            Renderer[] renderers = targetGo.GetComponentsInChildren<Renderer>();
-            bool hasBounds = false;
-
-            foreach (var r in renderers)
+            // Measure a newly loaded avatar once. Following its animated head or
+            // renderer bounds every frame makes the camera twitch with the pose.
+            if (framedTarget != targetGo)
             {
-                if (r.bounds.size.magnitude > 0.05f)
-                {
-                    if (!hasBounds)
-                    {
-                        bounds = r.bounds;
-                        hasBounds = true;
-                    }
-                    else
-                    {
-                        bounds.Encapsulate(r.bounds);
-                    }
-                }
+                CacheStableFraming(targetGo);
             }
 
-            if (!hasBounds)
-            {
-                bounds = new Bounds(targetGo.transform.position, new Vector3(1f, 1.8f, 1f));
-            }
-
-            // 3. Determine dynamic target focus position and height (Focus on head/face if available)
-            Vector3 targetFocusPos = bounds.center;
-            float targetHeight = bounds.size.y;
-
-            Animator animator = targetGo.GetComponent<Animator>();
-            if (animator != null && animator.isHuman)
-            {
-                Transform headBone = animator.GetBoneTransform(HumanBodyBones.Head);
-                if (headBone != null)
-                {
-                    targetFocusPos = headBone.position;
-                    // 0.6f gives a beautiful head-and-shoulders portrait close-up!
-                    targetHeight = 0.6f;
-                }
-            }
+            Vector3 targetFocusPos = targetGo.transform.TransformPoint(stableLocalFocusPos);
+            float targetHeight = stableFocusHeight;
 
             if (!isInitialized)
             {
@@ -158,7 +153,9 @@ namespace AICompanion.Services
                 }
             }
 
-            if (Keyboard.current != null && Keyboard.current.spaceKey.wasPressedThisFrame)
+            if (!IsTypingIntoTextField() &&
+                Keyboard.current != null &&
+                Keyboard.current.spaceKey.wasPressedThisFrame)
             {
                 // Space quickly re-centers the camera framing on the avatar.
                 orbitYaw = 180f;
@@ -229,6 +226,56 @@ namespace AICompanion.Services
             return Physics.Raycast(ray, out RaycastHit hit) && hit.transform.IsChildOf(targetGo.transform);
         }
 
+        private void CacheStableFraming(GameObject targetGo)
+        {
+            Bounds bounds = new Bounds(targetGo.transform.position, Vector3.zero);
+            Renderer[] renderers = targetGo.GetComponentsInChildren<Renderer>();
+            bool hasBounds = false;
+
+            foreach (Renderer renderer in renderers)
+            {
+                if (renderer == null || !renderer.enabled || renderer.bounds.size.magnitude <= 0.05f)
+                {
+                    continue;
+                }
+
+                if (!hasBounds)
+                {
+                    bounds = renderer.bounds;
+                    hasBounds = true;
+                }
+                else
+                {
+                    bounds.Encapsulate(renderer.bounds);
+                }
+            }
+
+            if (!hasBounds)
+            {
+                bounds = new Bounds(targetGo.transform.position + Vector3.up * 0.9f, new Vector3(1f, 1.8f, 1f));
+            }
+
+            Vector3 focusPosition = bounds.center;
+            float focusHeight = bounds.size.y;
+            Animator animator = targetGo.GetComponent<Animator>();
+            if (animator != null && animator.isHuman)
+            {
+                Transform headBone = animator.GetBoneTransform(HumanBodyBones.Head);
+                if (headBone != null)
+                {
+                    focusPosition = headBone.position;
+                    focusHeight = 0.6f;
+                }
+            }
+
+            framedTarget = targetGo;
+            stableLocalFocusPos = targetGo.transform.InverseTransformPoint(focusPosition);
+            stableFocusHeight = focusHeight;
+            smoothedFocusPos = focusPosition;
+            smoothedFocusHeight = focusHeight;
+            focusVelocity = Vector3.zero;
+        }
+
         public void SetZoomInSlider(float normalizedValue)
         {
             sliderZoomInValue = Mathf.Clamp01(normalizedValue);
@@ -253,7 +300,7 @@ namespace AICompanion.Services
 
         private void ProcessSceneNavigation()
         {
-            if (Keyboard.current == null || cam == null)
+            if (Keyboard.current == null || cam == null || IsTypingIntoTextField())
             {
                 return;
             }
@@ -280,6 +327,15 @@ namespace AICompanion.Services
             {
                 sceneOffset = Vector3.zero;
             }
+        }
+
+        private static bool IsTypingIntoTextField()
+        {
+            GameObject selected = EventSystem.current != null
+                ? EventSystem.current.currentSelectedGameObject
+                : null;
+
+            return selected != null && selected.GetComponentInParent<TMP_InputField>() != null;
         }
     }
 }
