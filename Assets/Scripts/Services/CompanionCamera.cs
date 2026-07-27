@@ -38,6 +38,10 @@ namespace AICompanion.Services
         [SerializeField] private float exploreLookSensitivity = 0.25f;
         [SerializeField] private float minExplorePitch = -85f;
         [SerializeField] private float maxExplorePitch = 85f;
+        [SerializeField] private float playerCameraDistance = 3.2f;
+        [SerializeField] private float minPlayerCameraDistance = 1.2f;
+        [SerializeField] private float maxPlayerCameraDistance = 7f;
+        [SerializeField] private float playerTurnSpeed = 12f;
 
         [Header("Character Tracking")]
         [SerializeField] private Transform selectedTarget;
@@ -75,6 +79,10 @@ namespace AICompanion.Services
         private float exploreYaw;
         private float explorePitch;
         private bool hasExplorePose;
+        private Transform playerAvatar;
+        private Vector3 playerLocalCameraPivot =
+            new Vector3(0f, 1.35f, 0f);
+        private bool exploreFollowingPlayer = true;
 
         private void Awake()
         {
@@ -314,18 +322,40 @@ namespace AICompanion.Services
                     zoomOffset = Mathf.Clamp(zoomOffset, minZoom, maxZoom);
                     isInteracting = true;
                 }
+                else if (exploreMode &&
+                    exploreFollowingPlayer &&
+                    !pointerOverUi &&
+                    Mathf.Abs(scroll) > 0.01f)
+                {
+                    playerCameraDistance = Mathf.Clamp(
+                        playerCameraDistance -
+                        scroll * zoomSensitivity,
+                        minPlayerCameraDistance,
+                        maxPlayerCameraDistance);
+                    isInteracting = true;
+                }
             }
 
             if (!IsTypingIntoTextField() &&
                 Keyboard.current != null &&
                 Keyboard.current.spaceKey.wasPressedThisFrame)
             {
-                // Space quickly re-centers the camera framing on the avatar.
-                orbitYaw = 180f;
-                orbitPitch = 10f;
-                zoomOffset = 0f;
-                sceneOffset = Vector3.zero;
-                hasManualFocus = false;
+                if (exploreMode)
+                {
+                    // Return to the self-insert after an R/F companion snap.
+                    exploreFollowingPlayer = true;
+                    hasExplorePose = false;
+                    SetPlayerVisible(true);
+                }
+                else
+                {
+                    // Space quickly re-centers character-mode framing.
+                    orbitYaw = 180f;
+                    orbitPitch = 10f;
+                    zoomOffset = 0f;
+                    sceneOffset = Vector3.zero;
+                    hasManualFocus = false;
+                }
                 isInteracting = true;
             }
 
@@ -334,6 +364,8 @@ namespace AICompanion.Services
                 Keyboard.current.rKey.wasPressedThisFrame)
             {
                 // Full-body reset.
+                exploreFollowingPlayer = false;
+                SetPlayerVisible(false);
                 isFaceFocusMode = false;
                 // The selected pose can be much wider/deeper than the avatar's
                 // load pose. Capture it once on reset so the frame is stable
@@ -356,6 +388,8 @@ namespace AICompanion.Services
                 Keyboard.current.fKey.wasPressedThisFrame)
             {
                 // Face reset.
+                exploreFollowingPlayer = false;
+                SetPlayerVisible(false);
                 isFaceFocusMode = true;
                 targetFocusPos = targetGo.transform.TransformPoint(
                     stableLocalFaceFocusPos);
@@ -669,6 +703,12 @@ namespace AICompanion.Services
         {
             EnsureExplorePose();
 
+            if (playerAvatar != null && exploreFollowingPlayer)
+            {
+                ProcessPlayerNavigation();
+                return;
+            }
+
             if (Keyboard.current != null && !IsTypingIntoTextField())
             {
                 Vector3 localMove = Vector3.zero;
@@ -707,6 +747,82 @@ namespace AICompanion.Services
             isInitialized = true;
         }
 
+        private void ProcessPlayerNavigation()
+        {
+            Vector3 localMove = Vector3.zero;
+            if (Keyboard.current != null && !IsTypingIntoTextField())
+            {
+                if (Keyboard.current.wKey.isPressed)
+                    localMove += Vector3.forward;
+                if (Keyboard.current.sKey.isPressed)
+                    localMove += Vector3.back;
+                if (Keyboard.current.aKey.isPressed)
+                    localMove += Vector3.left;
+                if (Keyboard.current.dKey.isPressed)
+                    localMove += Vector3.right;
+                if (Keyboard.current.qKey.isPressed)
+                    localMove += Vector3.down;
+                if (Keyboard.current.eKey.isPressed)
+                    localMove += Vector3.up;
+            }
+
+            Quaternion planarLook =
+                Quaternion.Euler(0f, exploreYaw, 0f);
+            Vector3 horizontalMove =
+                (planarLook * Vector3.forward * localMove.z) +
+                (planarLook * Vector3.right * localMove.x);
+            Vector3 worldMove =
+                horizontalMove + Vector3.up * localMove.y;
+
+            if (worldMove.sqrMagnitude > 0f)
+            {
+                float speed = moveSpeed *
+                    (Keyboard.current != null &&
+                     Keyboard.current.leftShiftKey.isPressed
+                        ? sprintMultiplier
+                        : 1f);
+                playerAvatar.position +=
+                    worldMove.normalized * speed * Time.deltaTime;
+            }
+
+            Vector3 playerPosition = playerAvatar.position;
+            playerPosition.y = Mathf.Clamp(
+                playerPosition.y,
+                0.02f,
+                Mathf.Max(0.02f, maxExploreHeight - 1f));
+            playerAvatar.position = playerPosition;
+
+            if (horizontalMove.sqrMagnitude > 0.001f)
+            {
+                Quaternion targetRotation =
+                    Quaternion.LookRotation(
+                        horizontalMove.normalized,
+                        Vector3.up);
+                playerAvatar.rotation = Quaternion.Slerp(
+                    playerAvatar.rotation,
+                    targetRotation,
+                    Time.deltaTime * playerTurnSpeed);
+            }
+
+            Vector3 pivot =
+                playerAvatar.TransformPoint(
+                    playerLocalCameraPivot);
+            Quaternion cameraRotation =
+                Quaternion.Euler(
+                    explorePitch,
+                    exploreYaw,
+                    0f);
+            explorePosition = ClampAboveGround(
+                pivot -
+                cameraRotation * Vector3.forward *
+                playerCameraDistance);
+            transform.SetPositionAndRotation(
+                explorePosition,
+                cameraRotation);
+            currentTargetCamPos = explorePosition;
+            isInitialized = true;
+        }
+
         private void EnsureExplorePose()
         {
             if (!hasExplorePose)
@@ -732,6 +848,7 @@ namespace AICompanion.Services
             exploreMode = enabled;
             if (!exploreMode)
             {
+                SetPlayerVisible(false);
                 hasManualFocus = false;
                 sceneOffset = Vector3.zero;
                 focusVelocity = Vector3.zero;
@@ -739,8 +856,117 @@ namespace AICompanion.Services
             else
             {
                 hasManualFocus = false;
+                exploreFollowingPlayer = true;
+                SetPlayerVisible(true);
                 CaptureExplorePose();
             }
+        }
+
+        public void SetPlayerAvatar(Transform player)
+        {
+            playerAvatar = player;
+            exploreFollowingPlayer = true;
+            CachePlayerCameraPivot();
+            SetPlayerVisible(exploreMode);
+        }
+
+        public bool TryGetPlayerTransform(
+            out Vector3 position,
+            out Quaternion rotation)
+        {
+            if (playerAvatar == null)
+            {
+                position = Vector3.zero;
+                rotation = Quaternion.identity;
+                return false;
+            }
+
+            position = playerAvatar.position;
+            rotation = playerAvatar.rotation;
+            return true;
+        }
+
+        public void ApplyPlayerTransform(
+            Vector3 position,
+            Quaternion rotation)
+        {
+            if (playerAvatar == null)
+            {
+                return;
+            }
+
+            playerAvatar.SetPositionAndRotation(
+                position,
+                rotation);
+            hasExplorePose = false;
+        }
+
+        private void SetPlayerVisible(bool visible)
+        {
+            if (playerAvatar != null &&
+                playerAvatar.gameObject.activeSelf != visible)
+            {
+                playerAvatar.gameObject.SetActive(visible);
+            }
+        }
+
+        private void CachePlayerCameraPivot()
+        {
+            if (playerAvatar == null)
+            {
+                return;
+            }
+
+            Animator animator =
+                playerAvatar.GetComponent<Animator>();
+            if (animator != null && animator.isHuman)
+            {
+                Transform hips =
+                    animator.GetBoneTransform(
+                        HumanBodyBones.Hips);
+                Transform head =
+                    animator.GetBoneTransform(
+                        HumanBodyBones.Head);
+                if (hips != null && head != null)
+                {
+                    Vector3 pivot = Vector3.Lerp(
+                        hips.position,
+                        head.position,
+                        0.65f);
+                    playerLocalCameraPivot =
+                        playerAvatar.InverseTransformPoint(pivot);
+                    return;
+                }
+            }
+
+            Bounds bounds =
+                new Bounds(
+                    playerAvatar.position + Vector3.up,
+                    Vector3.one);
+            bool hasBounds = false;
+            foreach (Renderer renderer in
+                playerAvatar.GetComponentsInChildren<Renderer>())
+            {
+                if (!renderer.enabled)
+                {
+                    continue;
+                }
+
+                if (!hasBounds)
+                {
+                    bounds = renderer.bounds;
+                    hasBounds = true;
+                }
+                else
+                {
+                    bounds.Encapsulate(renderer.bounds);
+                }
+            }
+
+            playerLocalCameraPivot =
+                playerAvatar.InverseTransformPoint(
+                    bounds.center +
+                    Vector3.up * bounds.extents.y * 0.2f);
         }
 
         public void SetTrackedTarget(Transform target)

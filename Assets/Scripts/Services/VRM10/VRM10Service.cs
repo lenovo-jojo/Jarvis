@@ -124,6 +124,10 @@ namespace AICompanion.Services
         }
 
         private GameObject currentAvatarGo;
+        private GameObject playerAvatarGo;
+        private readonly Dictionary<string, GameObject> worldAvatars =
+            new Dictionary<string, GameObject>(
+                StringComparer.OrdinalIgnoreCase);
         private bool isUsingCustomVrm;
         private VRMBlendShapeProxy vrmProxy;
 
@@ -135,6 +139,7 @@ namespace AICompanion.Services
 
         // VRM 1.0 / VRM Animation runtime state
         private Vrm10Instance vrm10Instance;
+        private Vrm10Instance playerVrm10Instance;
         private RuntimeGltfInstance activeVrmaInstance;
         private Vrm10AnimationInstance activeVrmaAnimation;
         private int appliedVpdPoseIndex = -1;
@@ -1327,6 +1332,218 @@ namespace AICompanion.Services
             LoadVRMAsync(filePath, onLoaded, onError);
         }
 
+        public void LoadPlayerVRM(
+            string filePath,
+            Action<GameObject> onLoaded,
+            Action<string> onError)
+        {
+            if (!File.Exists(filePath))
+            {
+                string message =
+                    $"Player VRM file not found at: {filePath}";
+                Debug.LogError(message);
+                onError?.Invoke(message);
+                return;
+            }
+
+            LoadPlayerVRMAsync(filePath, onLoaded, onError);
+        }
+
+        private async void LoadPlayerVRMAsync(
+            string filePath,
+            Action<GameObject> onLoaded,
+            Action<string> onError)
+        {
+            try
+            {
+                if (playerAvatarGo != null)
+                {
+                    Destroy(playerAvatarGo);
+                }
+
+                playerVrm10Instance = await Vrm10.LoadPathAsync(
+                    filePath,
+                    canLoadVrm0X: true,
+                    controlRigGenerationOption:
+                        ControlRigGenerationOption.None,
+                    showMeshes: true,
+                    awaitCaller: new RuntimeOnlyAwaitCaller());
+
+                if (playerVrm10Instance == null)
+                {
+                    throw new Exception(
+                        "UniVRM returned no player avatar.");
+                }
+
+                playerAvatarGo = playerVrm10Instance.gameObject;
+                playerAvatarGo.name = "PlayerAvatarVRM";
+                playerAvatarGo.transform.SetParent(transform, true);
+                playerAvatarGo.transform.SetPositionAndRotation(
+                    new Vector3(0f, 0.02f, -1.5f),
+                    Quaternion.identity);
+                playerAvatarGo.transform.localScale = Vector3.one;
+
+                Animator animator =
+                    playerAvatarGo.GetComponent<Animator>();
+                if (animator == null || !animator.isHuman)
+                {
+                    throw new Exception(
+                        "The player VRM needs a Humanoid Animator.");
+                }
+
+                SanitizeSpringBones(playerVrm10Instance);
+                RuntimeGltfInstance runtimeGltf =
+                    playerAvatarGo.GetComponent<RuntimeGltfInstance>();
+                if (runtimeGltf != null)
+                {
+                    runtimeGltf.EnableUpdateWhenOffscreen();
+                    runtimeGltf.ShowMeshes();
+                }
+                playerAvatarGo.SetActive(false);
+
+                ServiceConfig config = ServiceConfig.Load();
+                if (config.hasPlayerTransform)
+                {
+                    playerAvatarGo.transform.SetPositionAndRotation(
+                        new Vector3(
+                            config.playerPosX,
+                            config.playerPosY,
+                            config.playerPosZ),
+                        new Quaternion(
+                            config.playerRotX,
+                            config.playerRotY,
+                            config.playerRotZ,
+                            config.playerRotW));
+                }
+                config.playerVrmPath = filePath;
+                config.Save();
+
+                Debug.Log(
+                    "[VRMService] Independent player VRM loaded.");
+                onLoaded?.Invoke(playerAvatarGo);
+            }
+            catch (Exception ex)
+            {
+                if (playerAvatarGo != null)
+                {
+                    Destroy(playerAvatarGo);
+                    playerAvatarGo = null;
+                }
+
+                string message =
+                    $"Player VRM Load Error: {ex}";
+                Debug.LogError(message);
+                onError?.Invoke(message);
+            }
+        }
+
+        public void LoadWorldVRM(
+            string characterId,
+            string filePath,
+            Vector3 position,
+            Quaternion rotation,
+            Action<GameObject> onLoaded,
+            Action<string> onError)
+        {
+            if (string.IsNullOrWhiteSpace(characterId))
+            {
+                onError?.Invoke(
+                    "A world character needs a unique ID.");
+                return;
+            }
+
+            if (!File.Exists(filePath))
+            {
+                onError?.Invoke(
+                    $"World VRM file not found at: {filePath}");
+                return;
+            }
+
+            LoadWorldVRMAsync(
+                characterId.Trim(),
+                filePath,
+                position,
+                rotation,
+                onLoaded,
+                onError);
+        }
+
+        private async void LoadWorldVRMAsync(
+            string characterId,
+            string filePath,
+            Vector3 position,
+            Quaternion rotation,
+            Action<GameObject> onLoaded,
+            Action<string> onError)
+        {
+            try
+            {
+                if (worldAvatars.TryGetValue(
+                        characterId,
+                        out GameObject previous) &&
+                    previous != null)
+                {
+                    Destroy(previous);
+                }
+
+                Vrm10Instance instance =
+                    await Vrm10.LoadPathAsync(
+                        filePath,
+                        canLoadVrm0X: true,
+                        controlRigGenerationOption:
+                            ControlRigGenerationOption.None,
+                        showMeshes: true,
+                        awaitCaller:
+                            new RuntimeOnlyAwaitCaller());
+
+                if (instance == null)
+                {
+                    throw new Exception(
+                        "UniVRM returned no world avatar.");
+                }
+
+                GameObject avatar = instance.gameObject;
+                avatar.name =
+                    $"WorldAvatarVRM_{characterId}";
+                avatar.transform.SetParent(transform, true);
+                avatar.transform.SetPositionAndRotation(
+                    position,
+                    rotation);
+                avatar.transform.localScale = Vector3.one;
+
+                Animator animator =
+                    avatar.GetComponent<Animator>();
+                if (animator == null || !animator.isHuman)
+                {
+                    Destroy(avatar);
+                    throw new Exception(
+                        "The world VRM needs a Humanoid Animator.");
+                }
+
+                SanitizeSpringBones(instance);
+                RuntimeGltfInstance runtimeGltf =
+                    avatar.GetComponent<RuntimeGltfInstance>();
+                if (runtimeGltf != null)
+                {
+                    runtimeGltf.EnableUpdateWhenOffscreen();
+                    runtimeGltf.ShowMeshes();
+                }
+
+                worldAvatars[characterId] = avatar;
+                Debug.Log(
+                    $"[VRMService] World character " +
+                    $"'{characterId}' loaded.");
+                onLoaded?.Invoke(avatar);
+            }
+            catch (Exception ex)
+            {
+                string message =
+                    $"World VRM Load Error ({characterId}): {ex}";
+                Debug.LogError(message);
+                onError?.Invoke(message);
+            }
+        }
+
         private async void LoadVRMAsync(
             string filePath,
             Action<GameObject> onLoaded,
@@ -1785,6 +2002,22 @@ namespace AICompanion.Services
         private void OnDestroy()
         {
             DestroyActiveVrma();
+
+            if (playerAvatarGo != null)
+            {
+                Destroy(playerAvatarGo);
+                playerAvatarGo = null;
+            }
+
+            foreach (GameObject worldAvatar in
+                worldAvatars.Values)
+            {
+                if (worldAvatar != null)
+                {
+                    Destroy(worldAvatar);
+                }
+            }
+            worldAvatars.Clear();
 
             if (poseHandler != null)
             {

@@ -21,6 +21,7 @@ namespace AICompanion.Core
         public string elevenLabsModelId = "eleven_multilingual_v2";
         public bool isLocalMode = true;
         public string customVrmPath = "";
+        public string playerVrmPath = "";
         public int chatModelMigrationVersion = 3;
         public int picnicSeatingMigrationVersion = 2;
 
@@ -49,6 +50,16 @@ namespace AICompanion.Core
         public float avatarRotY = 0f;
         public float avatarRotZ = 0f;
         public float avatarRotW = 1f;
+
+        // Explore player position and rotation
+        public bool hasPlayerTransform = false;
+        public float playerPosX = 0f;
+        public float playerPosY = 0.02f;
+        public float playerPosZ = -1.5f;
+        public float playerRotX = 0f;
+        public float playerRotY = 0f;
+        public float playerRotZ = 0f;
+        public float playerRotW = 1f;
 
         // Camera values
         public float camOrbitYaw = 180f;

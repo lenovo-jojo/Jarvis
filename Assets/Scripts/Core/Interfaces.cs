@@ -17,6 +17,14 @@ namespace AICompanion.Core
     public interface IVRMService
     {
         void LoadVRM(string filePath, Action<GameObject> onLoaded, Action<string> onError);
+        void LoadPlayerVRM(string filePath, Action<GameObject> onLoaded, Action<string> onError);
+        void LoadWorldVRM(
+            string characterId,
+            string filePath,
+            Vector3 position,
+            Quaternion rotation,
+            Action<GameObject> onLoaded,
+            Action<string> onError);
         void SetExpression(string expressionName, float value);
         void PlayMouthVolume(float volume);
         void SetSpeaking(bool speaking);

@@ -5,6 +5,7 @@ using AICompanion.Core;
 using AICompanion.Services;
 using AICompanion.UI;
 using System.Collections;
+using System.IO;
 
 namespace AICompanion.Core
 {
@@ -87,6 +88,7 @@ namespace AICompanion.Core
             companionUI.OnSaveFrameRequested += SaveCurrentFrame;
             companionUI.OnLoadFrameRequested += LoadSavedFrame;
             companionCamera = Camera.main != null ? Camera.main.GetComponent<CompanionCamera>() : null;
+            LoadPlayerAvatar();
 
             // Populate Pose Dropdown
             if (vrmService != null)
@@ -552,6 +554,57 @@ namespace AICompanion.Core
             companionCamera?.SetExploreMode(enabled);
         }
 
+        private void LoadPlayerAvatar()
+        {
+            if (vrmService == null)
+            {
+                return;
+            }
+
+            ServiceConfig config = ServiceConfig.Load();
+            string bundledPlayerPath = Path.Combine(
+                Application.dataPath,
+                "Characters",
+                "jojo4.vrm");
+            string playerPath =
+                !string.IsNullOrWhiteSpace(config.playerVrmPath) &&
+                File.Exists(config.playerVrmPath)
+                    ? config.playerVrmPath
+                    : bundledPlayerPath;
+
+            if (!File.Exists(playerPath))
+            {
+                Debug.LogWarning(
+                    $"[CompanionController] Player VRM not found: " +
+                    $"{playerPath}");
+                return;
+            }
+
+            vrmService.LoadPlayerVRM(
+                playerPath,
+                onLoaded: player =>
+                {
+                    if (companionCamera == null &&
+                        Camera.main != null)
+                    {
+                        companionCamera =
+                            Camera.main.GetComponent<CompanionCamera>();
+                    }
+
+                    companionCamera?.SetPlayerAvatar(
+                        player.transform);
+                    companionUI?.AppendLog(
+                        "System",
+                        "Jojo4 self-insert loaded for Explore Mode.");
+                },
+                onError: error =>
+                {
+                    companionUI?.AppendLog(
+                        "System",
+                        $"Player avatar load error: {error}");
+                });
+        }
+
         private int GetPoseIndexByName(string poseName)
         {
             for (int i = 0; i < availablePoses.Count; i++)
@@ -628,6 +681,20 @@ namespace AICompanion.Core
                 config.camRotY = companionCamera.transform.rotation.y;
                 config.camRotZ = companionCamera.transform.rotation.z;
                 config.camRotW = companionCamera.transform.rotation.w;
+
+                if (companionCamera.TryGetPlayerTransform(
+                        out Vector3 playerPosition,
+                        out Quaternion playerRotation))
+                {
+                    config.hasPlayerTransform = true;
+                    config.playerPosX = playerPosition.x;
+                    config.playerPosY = playerPosition.y;
+                    config.playerPosZ = playerPosition.z;
+                    config.playerRotX = playerRotation.x;
+                    config.playerRotY = playerRotation.y;
+                    config.playerRotZ = playerRotation.z;
+                    config.playerRotW = playerRotation.w;
+                }
             }
 
             config.hasSavedFrame = true;
@@ -722,6 +789,19 @@ namespace AICompanion.Core
                     Camera.main.GetComponent<CompanionCamera>();
             }
             companionCamera?.ApplySavedState(config);
+            if (config.hasPlayerTransform)
+            {
+                companionCamera?.ApplyPlayerTransform(
+                    new Vector3(
+                        config.playerPosX,
+                        config.playerPosY,
+                        config.playerPosZ),
+                    new Quaternion(
+                        config.playerRotX,
+                        config.playerRotY,
+                        config.playerRotZ,
+                        config.playerRotW));
+            }
 
             companionUI.AppendLog(
                 "System",

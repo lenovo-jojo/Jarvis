@@ -43,6 +43,25 @@ namespace AICompanion.Services
             onError?.Invoke(messageText);
         }
 
+        public void LoadPlayerVRM(
+            string filePath,
+            Action<GameObject> onLoaded,
+            Action<string> onError)
+        {
+            LoadVRM(filePath, onLoaded, onError);
+        }
+
+        public void LoadWorldVRM(
+            string characterId,
+            string filePath,
+            Vector3 position,
+            Quaternion rotation,
+            Action<GameObject> onLoaded,
+            Action<string> onError)
+        {
+            LoadVRM(filePath, onLoaded, onError);
+        }
+
         public void SetExpression(string expressionName, float value)
         {
         }

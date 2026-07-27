@@ -67,6 +67,48 @@ namespace AICompanion.Services
             implementation.LoadVRM(filePath, onLoaded, onError);
         }
 
+        public void LoadPlayerVRM(
+            string filePath,
+            Action<GameObject> onLoaded,
+            Action<string> onError)
+        {
+            if (implementation == null)
+            {
+                onError?.Invoke(
+                    "[VRMService] No backend is active.");
+                return;
+            }
+
+            implementation.LoadPlayerVRM(
+                filePath,
+                onLoaded,
+                onError);
+        }
+
+        public void LoadWorldVRM(
+            string characterId,
+            string filePath,
+            Vector3 position,
+            Quaternion rotation,
+            Action<GameObject> onLoaded,
+            Action<string> onError)
+        {
+            if (implementation == null)
+            {
+                onError?.Invoke(
+                    "[VRMService] No backend is active.");
+                return;
+            }
+
+            implementation.LoadWorldVRM(
+                characterId,
+                filePath,
+                position,
+                rotation,
+                onLoaded,
+                onError);
+        }
+
         public void SetExpression(string expressionName, float value)
         {
             implementation?.SetExpression(expressionName, value);
