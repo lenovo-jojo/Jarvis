@@ -80,6 +80,7 @@ namespace AICompanion.Services
         private float explorePitch;
         private bool hasExplorePose;
         private Transform playerAvatar;
+        private PlayerLocomotionAnimator playerLocomotion;
         private Vector3 playerLocalCameraPivot =
             new Vector3(0f, 1.35f, 0f);
         private bool exploreFollowingPlayer = true;
@@ -773,14 +774,20 @@ namespace AICompanion.Services
                 (planarLook * Vector3.right * localMove.x);
             Vector3 worldMove =
                 horizontalMove + Vector3.up * localMove.y;
+            bool sprinting =
+                Keyboard.current != null &&
+                Keyboard.current.leftShiftKey.isPressed;
+            float appliedSpeed = 0f;
 
             if (worldMove.sqrMagnitude > 0f)
             {
                 float speed = moveSpeed *
-                    (Keyboard.current != null &&
-                     Keyboard.current.leftShiftKey.isPressed
+                    (sprinting
                         ? sprintMultiplier
                         : 1f);
+                appliedSpeed = speed *
+                    horizontalMove.magnitude /
+                    worldMove.magnitude;
                 playerAvatar.position +=
                     worldMove.normalized * speed * Time.deltaTime;
             }
@@ -791,6 +798,10 @@ namespace AICompanion.Services
                 0.02f,
                 Mathf.Max(0.02f, maxExploreHeight - 1f));
             playerAvatar.position = playerPosition;
+            playerLocomotion?.SetMotion(
+                appliedSpeed,
+                sprinting,
+                playerPosition.y > 0.05f);
 
             if (horizontalMove.sqrMagnitude > 0.001f)
             {
@@ -865,6 +876,14 @@ namespace AICompanion.Services
         public void SetPlayerAvatar(Transform player)
         {
             playerAvatar = player;
+            playerLocomotion =
+                playerAvatar.GetComponent<PlayerLocomotionAnimator>();
+            if (playerLocomotion == null)
+            {
+                playerLocomotion =
+                    playerAvatar.gameObject.AddComponent<
+                        PlayerLocomotionAnimator>();
+            }
             exploreFollowingPlayer = true;
             CachePlayerCameraPivot();
             SetPlayerVisible(exploreMode);
