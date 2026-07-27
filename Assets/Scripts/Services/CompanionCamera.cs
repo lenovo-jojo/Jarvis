@@ -34,6 +34,7 @@ namespace AICompanion.Services
         [SerializeField] private float verticalDragSensitivity = 0.005f;
         [SerializeField] private float minVerticalFrameOffset = -1.5f;
         [SerializeField] private float maxVerticalFrameOffset = 2.5f;
+        [SerializeField] private float maxExploreHeight = 20f;
 
         [Header("Character Tracking")]
         [SerializeField] private Transform selectedTarget;
@@ -127,6 +128,10 @@ namespace AICompanion.Services
             {
                 minVerticalFrameOffset = -1.5f;
                 maxVerticalFrameOffset = 2.5f;
+            }
+            if (maxExploreHeight <= groundClearance)
+            {
+                maxExploreHeight = 20f;
             }
             if (fullBodyFramingScale <= 0.1f)
             {
@@ -632,30 +637,52 @@ namespace AICompanion.Services
             if (Keyboard.current.qKey.isPressed) moveInput += Vector3.down;
             if (Keyboard.current.eKey.isPressed) moveInput += Vector3.up;
 
+            if (!hasManualFocus)
+            {
+                manualFocusPosition =
+                    currentAutomaticFocusPosition;
+                manualFocusPosition.y = Mathf.Clamp(
+                    manualFocusPosition.y,
+                    groundClearance,
+                    maxExploreHeight);
+                hasManualFocus = true;
+                sceneOffset =
+                    manualFocusPosition - smoothedFocusPos;
+            }
+
             if (moveInput.sqrMagnitude > 0f)
             {
-                if (!hasManualFocus)
-                {
-                    manualFocusPosition =
-                        currentAutomaticFocusPosition;
-                    hasManualFocus = true;
-                }
-
                 float speed = moveSpeed * (Keyboard.current.leftShiftKey.isPressed ? sprintMultiplier : 1f);
+                Vector3 planarForward =
+                    Vector3.ProjectOnPlane(
+                        cam.transform.forward,
+                        Vector3.up);
+                if (planarForward.sqrMagnitude < 0.001f)
+                {
+                    planarForward = Vector3.forward;
+                }
+                planarForward.Normalize();
+
+                Vector3 planarRight =
+                    Vector3.ProjectOnPlane(
+                        cam.transform.right,
+                        Vector3.up);
+                if (planarRight.sqrMagnitude < 0.001f)
+                {
+                    planarRight = Vector3.right;
+                }
+                planarRight.Normalize();
+
                 Vector3 worldMove =
-                    (cam.transform.forward * moveInput.z) +
-                    (cam.transform.right * moveInput.x) +
+                    (planarForward * moveInput.z) +
+                    (planarRight * moveInput.x) +
                     (Vector3.up * moveInput.y);
                 manualFocusPosition +=
                     worldMove.normalized * speed * Time.deltaTime;
-
-                float relativeHeight =
-                    manualFocusPosition.y - smoothedFocusPos.y;
-                manualFocusPosition.y =
-                    smoothedFocusPos.y + Mathf.Clamp(
-                    relativeHeight,
-                    minVerticalFrameOffset,
-                    maxVerticalFrameOffset);
+                manualFocusPosition.y = Mathf.Clamp(
+                    manualFocusPosition.y,
+                    groundClearance,
+                    maxExploreHeight);
 
                 sceneOffset =
                     manualFocusPosition - smoothedFocusPos;
@@ -670,6 +697,13 @@ namespace AICompanion.Services
                 hasManualFocus = false;
                 sceneOffset = Vector3.zero;
                 focusVelocity = Vector3.zero;
+            }
+            else
+            {
+                // LateUpdate establishes a world-space focus point from the
+                // current view, immediately detaching Explore Mode from VRM
+                // movement while preserving the visible composition.
+                hasManualFocus = false;
             }
         }
 

@@ -201,7 +201,7 @@ namespace AICompanion.UI
             if (exploreModeToggle != null)
             {
                 exploreModeToggle.onValueChanged.AddListener(
-                    (val) => OnExploreModeToggleChanged?.Invoke(val));
+                    HandleCameraModeToggleChanged);
             }
             if (zoomInSlider != null)
             {
@@ -302,7 +302,9 @@ namespace AICompanion.UI
                     exploreModeToggle =
                         exploreObject.GetComponent<Toggle>();
                     exploreModeToggle.SetIsOnWithoutNotify(false);
-                    SetToggleText(exploreModeToggle, "explore");
+                    SetToggleText(
+                        exploreModeToggle,
+                        "character mode");
                 }
             }
 
@@ -1594,7 +1596,12 @@ namespace AICompanion.UI
             SetToggleText(webcamToggle, "webcam");
             SetToggleText(screenToggle, "screen");
             SetToggleText(micToggle, "microphone");
-            SetToggleText(exploreModeToggle, "explore");
+            SetToggleText(
+                exploreModeToggle,
+                exploreModeToggle != null &&
+                exploreModeToggle.isOn
+                    ? "explore mode"
+                    : "character mode");
             StyleToggle(webcamToggle);
             StyleToggle(screenToggle);
             StyleToggle(animationToggle);
@@ -1661,6 +1668,16 @@ namespace AICompanion.UI
                     memorySettingsButton,
                     new Color32(238, 174, 197, 255));
             }
+        }
+
+        private void HandleCameraModeToggleChanged(bool exploreEnabled)
+        {
+            SetToggleText(
+                exploreModeToggle,
+                exploreEnabled
+                    ? "explore mode"
+                    : "character mode");
+            OnExploreModeToggleChanged?.Invoke(exploreEnabled);
         }
 
         private static void LowercaseStaticLabels(
