@@ -40,6 +40,7 @@ namespace AICompanion.Services
             {
                 webRequest.uploadHandler = new UploadHandlerRaw(bodyBytes);
                 webRequest.downloadHandler = new DownloadHandlerBuffer();
+                webRequest.timeout = 30;
                 webRequest.SetRequestHeader("Content-Type", "application/json");
                 webRequest.SetRequestHeader("xi-api-key", config.elevenLabsApiKey);
 
@@ -55,13 +56,14 @@ namespace AICompanion.Services
                     }
 
                     // Save raw MP3 bytes to cache to allow native MPEG decoding via UnityWebRequestMultimedia
-                    string cachedFilePath = Path.Combine(Application.temporaryCachePath, "elevenlabs_temp.mp3");
+                    string cachedFilePath =
+                        Path.Combine(
+                            Application.temporaryCachePath,
+                            "elevenlabs_" +
+                            Guid.NewGuid().ToString("N") +
+                            ".mp3");
                     try
                     {
-                        if (File.Exists(cachedFilePath))
-                        {
-                            File.Delete(cachedFilePath);
-                        }
                         File.WriteAllBytes(cachedFilePath, audioBytes);
                     }
                     catch (Exception ex)
@@ -74,6 +76,7 @@ namespace AICompanion.Services
                     string fileUrl = "file://" + cachedFilePath;
                     using (UnityWebRequest audioRequest = UnityWebRequestMultimedia.GetAudioClip(fileUrl, AudioType.MPEG))
                     {
+                        audioRequest.timeout = 10;
                         yield return audioRequest.SendWebRequest();
 
                         if (audioRequest.result == UnityWebRequest.Result.Success)
@@ -92,6 +95,17 @@ namespace AICompanion.Services
                         {
                             onError?.Invoke($"Audio Decoding Error: {audioRequest.error}");
                         }
+                    }
+
+                    try
+                    {
+                        File.Delete(cachedFilePath);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.LogWarning(
+                            "[ElevenLabsVoiceService] Could not " +
+                            $"remove temporary speech audio: {ex.Message}");
                     }
                 }
                 else

@@ -60,16 +60,47 @@ namespace AICompanion.Services
             ServiceConfig config = ServiceConfig.Load();
             if (config != null && config.hasSavedFrame)
             {
-                orbitYaw = config.camOrbitYaw;
-                orbitPitch = config.camOrbitPitch;
-                zoomOffset = config.camZoomOffset;
-                sceneOffset = new Vector3(config.camSceneOffsetX, config.camSceneOffsetY, config.camSceneOffsetZ);
-
-                transform.position = new Vector3(config.camPosX, config.camPosY, config.camPosZ);
-                transform.rotation = new Quaternion(config.camRotX, config.camRotY, config.camRotZ, config.camRotW);
-                currentTargetCamPos = transform.position;
-                isInitialized = true;
+                ApplySavedState(config);
             }
+        }
+
+        public void ApplySavedState(ServiceConfig config)
+        {
+            if (config == null || !config.hasSavedFrame)
+            {
+                return;
+            }
+
+            orbitYaw = config.camOrbitYaw;
+            orbitPitch = Mathf.Clamp(
+                config.camOrbitPitch,
+                minPitch,
+                maxPitch);
+            zoomOffset = Mathf.Clamp(
+                config.camZoomOffset,
+                minZoom,
+                maxZoom);
+            sceneOffset = new Vector3(
+                config.camSceneOffsetX,
+                config.camSceneOffsetY,
+                config.camSceneOffsetZ);
+
+            transform.SetPositionAndRotation(
+                new Vector3(
+                    config.camPosX,
+                    config.camPosY,
+                    config.camPosZ),
+                new Quaternion(
+                    config.camRotX,
+                    config.camRotY,
+                    config.camRotZ,
+                    config.camRotW));
+            currentTargetCamPos = transform.position;
+            focusVelocity = Vector3.zero;
+            sliderZoomInValue = 0f;
+            sliderZoomOutValue = 0f;
+            hasSliderInput = false;
+            isInitialized = true;
         }
 
         private void LateUpdate()

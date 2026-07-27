@@ -26,7 +26,12 @@ namespace AICompanion.Core
         private readonly List<string> availablePoses = new List<string>();
         private int selectedPoseIndex = -1;
         private Coroutine speechLifecycleCoroutine;
+        private Coroutine voiceGenerationCoroutine;
+        private Coroutine thinkingReactionCoroutine;
+        private Coroutine autosaveCoroutine;
+        private int requestGeneration;
         private CompanionCamera companionCamera;
+        private const float AutosaveIntervalSeconds = 60f;
 
         private void Awake()
         {
@@ -78,6 +83,7 @@ namespace AICompanion.Core
             companionUI.OnZoomInSliderChanged += HandleZoomInSliderChanged;
             companionUI.OnZoomOutSliderChanged += HandleZoomOutSliderChanged;
             companionUI.OnSaveFrameRequested += SaveCurrentFrame;
+            companionUI.OnLoadFrameRequested += LoadSavedFrame;
             companionCamera = Camera.main != null ? Camera.main.GetComponent<CompanionCamera>() : null;
 
             // Populate Pose Dropdown
@@ -113,7 +119,9 @@ namespace AICompanion.Core
                 }
                 else
                 {
-                    companionUI.AppendLog("System", $"Loaded {availablePoses.Count} poses. Click Next Pose or press P.");
+                    Debug.Log(
+                        $"[CompanionController] Loaded " +
+                        $"{availablePoses.Count} poses.");
                 }
             }
 
@@ -122,6 +130,9 @@ namespace AICompanion.Core
             {
                 sttService.SetListeningEnabled(companionUI.IsMicEnabled);
             }
+
+            autosaveCoroutine =
+                StartCoroutine(AutosaveRoutine());
         }
 
         private void HandleCyclePose()
@@ -137,10 +148,35 @@ namespace AICompanion.Core
                 return;
             }
 
-            selectedPoseIndex = (selectedPoseIndex + 1) % availablePoses.Count;
+            int nextPoseIndex = -1;
+            for (int offset = 1;
+                 offset <= availablePoses.Count;
+                 offset++)
+            {
+                int candidate =
+                    (selectedPoseIndex + offset) %
+                    availablePoses.Count;
+                if (companionUI == null ||
+                    companionUI.IsPoseEnabledForRotation(candidate))
+                {
+                    nextPoseIndex = candidate;
+                    break;
+                }
+            }
+
+            if (nextPoseIndex < 0)
+            {
+                Debug.LogWarning(
+                    "[CompanionController] Pose rotation is empty.");
+                return;
+            }
+
+            selectedPoseIndex = nextPoseIndex;
             vrmService.SetPose(selectedPoseIndex);
             companionUI.SetSelectedPoseInDropdown(selectedPoseIndex);
-            companionUI.AppendLog("System", $"Pose: {availablePoses[selectedPoseIndex]}");
+            Debug.Log(
+                $"[CompanionController] Pose changed: " +
+                availablePoses[selectedPoseIndex]);
         }
 
         private void HandlePoseSelected(int index)
@@ -159,7 +195,9 @@ namespace AICompanion.Core
             selectedPoseIndex = Mathf.Clamp(index, 0, availablePoses.Count - 1);
             vrmService.SetPose(selectedPoseIndex);
             companionUI.SetSelectedPoseInDropdown(selectedPoseIndex);
-            companionUI.AppendLog("System", $"Pose: {availablePoses[selectedPoseIndex]}");
+            Debug.Log(
+                $"[CompanionController] Pose selected: " +
+                availablePoses[selectedPoseIndex]);
         }
 
         private void HandleAnimationToggle(bool enabled)
@@ -231,11 +269,33 @@ namespace AICompanion.Core
 
         public void ProcessVoiceInput(string message)
         {
+            if (IsNonSpokenStatusText(message))
+            {
+                Debug.Log(
+                    "[CompanionController] Ignored thinking-status " +
+                    "microphone feedback.");
+                return;
+            }
             HandleUserMessage(message);
         }
 
         private void HandleUserMessage(string message)
         {
+            requestGeneration++;
+            int currentRequestGeneration =
+                requestGeneration;
+            EndThinkingReaction(false);
+
+            if (voiceGenerationCoroutine != null)
+            {
+                StopCoroutine(voiceGenerationCoroutine);
+                voiceGenerationCoroutine = null;
+            }
+            if (speechLifecycleCoroutine != null)
+            {
+                StopCoroutine(speechLifecycleCoroutine);
+                speechLifecycleCoroutine = null;
+            }
             if (isSpeaking)
             {
                 audioSource.Stop();
@@ -248,9 +308,12 @@ namespace AICompanion.Core
 
             // Get current active frames if toggled on
             Texture2D webcamFrame = useWebcamContext ? contextService.GetCameraFrame() : null;
-            Texture2D screenFrame = useScreenContext ? contextService.GetScreenFrame(false) : null;
+            Texture2D screenFrame =
+                useScreenContext
+                    ? contextService.GetScreenFrame(true)
+                    : null;
 
-            companionUI.AppendLog("System", "AI is thinking...");
+            StartThinkingReaction();
 
             StartCoroutine(llmService.SendMessageCoroutine(
                 message,
@@ -258,28 +321,121 @@ namespace AICompanion.Core
                 webcamFrame,
                 onComplete: (aiText) =>
                 {
+                    if (currentRequestGeneration !=
+                        requestGeneration)
+                    {
+                        return;
+                    }
+                    EndThinkingReaction(false);
                     TriggerExpressionFromText(aiText);
-                    SpeakText(aiText);
+                    SpeakText(
+                        aiText,
+                        currentRequestGeneration);
                 },
                 onError: (error) =>
                 {
+                    if (currentRequestGeneration !=
+                        requestGeneration)
+                    {
+                        return;
+                    }
+                    EndThinkingReaction(true);
                     companionUI.AppendLog("System", $"Error: {error}");
                     Debug.LogError(error);
                 }
             ));
         }
 
-        private void SpeakText(string text)
+        private void StartThinkingReaction()
         {
-            isSpeaking = true;
-            vrmService.SetSpeaking(true);
-            StartCoroutine(voiceService.GenerateSpeechCoroutine(
+            if (thinkingReactionCoroutine != null)
+            {
+                StopCoroutine(thinkingReactionCoroutine);
+            }
+            thinkingReactionCoroutine =
+                StartCoroutine(ThinkingReactionRoutine());
+        }
+
+        private IEnumerator ThinkingReactionRoutine()
+        {
+            vrmService.SetSpeaking(false);
+            vrmService.SetExpression(
+                "surprised",
+                0.3f);
+            yield return new WaitForSeconds(0.16f);
+            vrmService.SetExpression(
+                "thinking",
+                0.72f);
+            thinkingReactionCoroutine = null;
+        }
+
+        private void EndThinkingReaction(bool returnToNeutral)
+        {
+            if (thinkingReactionCoroutine != null)
+            {
+                StopCoroutine(thinkingReactionCoroutine);
+                thinkingReactionCoroutine = null;
+            }
+            if (returnToNeutral && vrmService != null)
+            {
+                vrmService.SetExpression(
+                    "neutral",
+                    1f);
+            }
+        }
+
+        private static bool IsNonSpokenStatusText(
+            string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return false;
+            }
+            string normalized =
+                text.Trim().ToLowerInvariant()
+                    .Replace("system:", string.Empty)
+                    .Trim();
+            return normalized == "ai is thinking" ||
+                   normalized == "ai is thinking..." ||
+                   normalized == "thinking" ||
+                   normalized == "thinking...";
+        }
+
+        private void SpeakText(
+            string text,
+            int currentRequestGeneration)
+        {
+            if (IsNonSpokenStatusText(text))
+            {
+                Debug.LogWarning(
+                    "[CompanionController] Blocked status text " +
+                    "from the TTS pipeline.");
+                return;
+            }
+
+            Debug.Log(
+                "[CompanionController] AI response ready: " +
+                text);
+
+            voiceGenerationCoroutine =
+                StartCoroutine(
+                    voiceService.GenerateSpeechCoroutine(
                 text,
                 onComplete: (clip) =>
                 {
+                    voiceGenerationCoroutine = null;
+                    if (currentRequestGeneration !=
+                        requestGeneration)
+                    {
+                        return;
+                    }
+                    isSpeaking = true;
+                    vrmService.SetSpeaking(true);
                     audioSource.clip = clip;
                     audioSource.Play();
-                    companionUI.StartAISpeechTyping(text, clip.length);
+                    companionUI.StartAISpeechTyping(
+                        text,
+                        clip.length);
                     if (speechLifecycleCoroutine != null)
                     {
                         StopCoroutine(speechLifecycleCoroutine);
@@ -288,11 +444,17 @@ namespace AICompanion.Core
                 },
                 onError: (error) =>
                 {
+                    voiceGenerationCoroutine = null;
+                    if (currentRequestGeneration !=
+                        requestGeneration)
+                    {
+                        return;
+                    }
                     companionUI.AppendLog("System", $"Speech Generation Failed: {error}");
+                    companionUI.AppendLog("AI", text);
                     isSpeaking = false;
                     vrmService.SetSpeaking(false);
                     vrmService.SetExpression("neutral", 1.0f);
-                    companionUI.CompleteAISpeechTyping(text);
                 }
             ));
         }
@@ -391,6 +553,12 @@ namespace AICompanion.Core
 
         public void SaveCurrentFrame()
         {
+            SaveCurrentFrameInternal(true);
+        }
+
+        private void SaveCurrentFrameInternal(
+            bool showConfirmation)
+        {
             ServiceConfig config = ServiceConfig.Load();
 
             // 1. Get avatar position and rotation
@@ -398,6 +566,11 @@ namespace AICompanion.Core
             if (avatar == null)
             {
                 avatar = GameObject.Find("CompanionAvatarProcedural");
+            }
+
+            if (avatar == null && !showConfirmation)
+            {
+                return;
             }
 
             if (avatar != null)
@@ -447,12 +620,113 @@ namespace AICompanion.Core
             config.hasSavedFrame = true;
             config.Save();
 
-            companionUI.AppendLog("System", $"SUCCESS: Saved current frame (Pose: {config.savedPoseName}) as default loading layout.");
-            Debug.Log($"[CompanionController] Saved current frame layout. Pose: {config.savedPoseName}");
+            if (showConfirmation)
+            {
+                string savedPoseDisplay =
+                    companionUI != null
+                        ? companionUI.GetPoseDisplayName(
+                            config.savedPoseName)
+                        : config.savedPoseName;
+                companionUI.AppendLog(
+                    "System",
+                    $"saved current frame ({savedPoseDisplay}) " +
+                    "as the default layout.");
+            }
+            Debug.Log(
+                showConfirmation
+                    ? $"[CompanionController] Saved current frame layout. " +
+                      $"Pose: {config.savedPoseName}"
+                    : $"[CompanionController] Autosaved. " +
+                      $"Pose: {config.savedPoseName}");
+        }
+
+        private IEnumerator AutosaveRoutine()
+        {
+            WaitForSecondsRealtime wait =
+                new WaitForSecondsRealtime(
+                    AutosaveIntervalSeconds);
+            while (true)
+            {
+                yield return wait;
+                SaveCurrentFrameInternal(false);
+            }
+        }
+
+        private void OnApplicationPause(bool paused)
+        {
+            if (paused)
+            {
+                SaveCurrentFrameInternal(false);
+            }
+        }
+
+        private void OnApplicationQuit()
+        {
+            SaveCurrentFrameInternal(false);
+        }
+
+        public void LoadSavedFrame()
+        {
+            ServiceConfig config = ServiceConfig.Load();
+            if (config == null || !config.hasSavedFrame)
+            {
+                companionUI.AppendLog(
+                    "System",
+                    "No saved state yet. Arrange JARVIS, then tap Save State.");
+                return;
+            }
+
+            int savedPoseIndex = GetPoseIndexByName(config.savedPoseName);
+            if (savedPoseIndex >= 0)
+            {
+                selectedPoseIndex = savedPoseIndex;
+                vrmService?.SetPose(selectedPoseIndex);
+                companionUI.SetSelectedPoseInDropdown(selectedPoseIndex);
+            }
+
+            GameObject avatar = GameObject.Find("CompanionAvatarVRM");
+            if (avatar == null)
+            {
+                avatar = GameObject.Find("CompanionAvatarProcedural");
+            }
+            if (avatar != null)
+            {
+                avatar.transform.SetPositionAndRotation(
+                    new Vector3(
+                        config.avatarPosX,
+                        config.avatarPosY,
+                        config.avatarPosZ),
+                    new Quaternion(
+                        config.avatarRotX,
+                        config.avatarRotY,
+                        config.avatarRotZ,
+                        config.avatarRotW));
+            }
+
+            if (companionCamera == null && Camera.main != null)
+            {
+                companionCamera =
+                    Camera.main.GetComponent<CompanionCamera>();
+            }
+            companionCamera?.ApplySavedState(config);
+
+            companionUI.AppendLog(
+                "System",
+                $"loaded saved state " +
+                $"({companionUI.GetPoseDisplayName(config.savedPoseName)}).");
+            Debug.Log(
+                $"[CompanionController] Loaded saved frame layout. " +
+                $"Pose: {config.savedPoseName}");
         }
 
         private void OnDestroy()
         {
+            if (autosaveCoroutine != null)
+            {
+                StopCoroutine(autosaveCoroutine);
+                autosaveCoroutine = null;
+            }
+
             if (companionUI != null)
             {
                 companionUI.OnSendMessageRequested -= HandleUserMessage;
@@ -466,6 +740,7 @@ namespace AICompanion.Core
                 companionUI.OnZoomInSliderChanged -= HandleZoomInSliderChanged;
                 companionUI.OnZoomOutSliderChanged -= HandleZoomOutSliderChanged;
                 companionUI.OnSaveFrameRequested -= SaveCurrentFrame;
+                companionUI.OnLoadFrameRequested -= LoadSavedFrame;
             }
         }
     }

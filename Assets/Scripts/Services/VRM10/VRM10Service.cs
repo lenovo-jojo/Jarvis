@@ -1447,7 +1447,8 @@ namespace AICompanion.Services
                     currentExpressionKey = ExpressionKey.Sad;
                 else if (expLower == "angry")
                     currentExpressionKey = ExpressionKey.Angry;
-                else if (expLower == "relaxed")
+                else if (expLower == "relaxed" ||
+                         expLower == "thinking")
                     currentExpressionKey = ExpressionKey.Relaxed;
                 else if (expLower == "surprised")
                     currentExpressionKey = ExpressionKey.Surprised;
@@ -1476,7 +1477,8 @@ namespace AICompanion.Services
                     {
                         vrm10Instance.Runtime.Expression.SetWeight(ExpressionKey.Angry, value);
                     }
-                    else if (expLower == "relaxed")
+                    else if (expLower == "relaxed" ||
+                             expLower == "thinking")
                     {
                         vrm10Instance.Runtime.Expression.SetWeight(ExpressionKey.Relaxed, value);
                     }

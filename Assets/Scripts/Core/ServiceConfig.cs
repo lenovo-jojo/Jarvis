@@ -9,12 +9,32 @@ namespace AICompanion.Core
     {
         public string llmBaseUrl = "http://localhost:11434/v1";
         public string llmApiKey = "";
-        public string llmModelName = "dolphin-mistral";
+        public string llmModelName = "llava";
+        public string visionModelName = "qwen3-vl:4b-instruct";
+        public string speechToTextBaseUrl = "";
+        public string speechToTextApiKey = "";
+        public string speechToTextModelName = "whisper-1";
+        public string localWhisperExecutablePath = "";
+        public string localWhisperModelPath = "";
         public string elevenLabsApiKey = "";
         public string elevenLabsVoiceId = "Vw2FAddBZobPTywXPmmm"; // Custom default
         public string elevenLabsModelId = "eleven_multilingual_v2";
         public bool isLocalMode = true;
         public string customVrmPath = "";
+        public int chatModelMigrationVersion = 3;
+
+        // Local Jarvis memory
+        public bool memoryEnabled = true;
+        public bool longTermMemoryEnabled = true;
+        public bool constitutionEnabled = true;
+        public int memoryRecentMessageCount = 12;
+        public int memoryRelevantCount = 8;
+
+        // Private local web research
+        public bool webSearchEnabled = true;
+        public string searxngBaseUrl =
+            "http://127.0.0.1:8080";
+        public int webSearchResultCount = 5;
 
         // Saved Frame Data
         public bool hasSavedFrame = false;
@@ -54,7 +74,40 @@ namespace AICompanion.Core
                 try
                 {
                     string json = File.ReadAllText(FilePath);
-                    return JsonUtility.FromJson<ServiceConfig>(json);
+                    ServiceConfig config =
+                        JsonUtility.FromJson<ServiceConfig>(json);
+                    bool shouldSaveMigration = false;
+                    if (config != null &&
+                        config.chatModelMigrationVersion < 3)
+                    {
+                        config.llmModelName = "llava";
+                        config.chatModelMigrationVersion = 3;
+                        shouldSaveMigration = true;
+                    }
+                    if (config != null &&
+                        (string.IsNullOrWhiteSpace(
+                             config.visionModelName) ||
+                         string.Equals(
+                             config.visionModelName,
+                             "llava",
+                             StringComparison.OrdinalIgnoreCase) ||
+                         string.Equals(
+                             config.visionModelName,
+                             "qwen3-vl:4b",
+                             StringComparison.OrdinalIgnoreCase)))
+                    {
+                        config.visionModelName =
+                            "qwen3-vl:4b-instruct";
+                    }
+                    if (shouldSaveMigration)
+                    {
+                        config.Save();
+                        Debug.Log(
+                            "[ServiceConfig] Set the chat model to " +
+                            "llava; vision remains " +
+                            $"{config.visionModelName}.");
+                    }
+                    return config;
                 }
                 catch (Exception ex)
                 {
