@@ -22,7 +22,7 @@ namespace AICompanion.Core
         public bool isLocalMode = true;
         public string customVrmPath = "";
         public int chatModelMigrationVersion = 3;
-        public int picnicSeatingMigrationVersion = 1;
+        public int picnicSeatingMigrationVersion = 2;
 
         // Local Jarvis memory
         public bool memoryEnabled = true;
@@ -86,13 +86,13 @@ namespace AICompanion.Core
                         shouldSaveMigration = true;
                     }
                     if (config != null &&
-                        config.picnicSeatingMigrationVersion < 1)
+                        config.picnicSeatingMigrationVersion < 2)
                     {
                         config.savedPoseName = "Optional Pose C";
                         config.avatarPosX = 0f;
                         config.avatarPosY = 0.02f;
                         config.avatarPosZ = 2f;
-                        config.picnicSeatingMigrationVersion = 1;
+                        config.picnicSeatingMigrationVersion = 2;
                         shouldSaveMigration = true;
                     }
                     if (config != null &&
