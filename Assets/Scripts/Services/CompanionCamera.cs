@@ -24,6 +24,7 @@ namespace AICompanion.Services
         [SerializeField] private float minCameraDistance = 0.45f;
         [SerializeField] private float maxCameraDistance = 12f;
         [SerializeField] private float keyboardOrbitSpeed = 70f;
+        [SerializeField] private float keyboardZoomSpeed = 1.8f;
         [SerializeField] private float followVerticalSpeed = 2f;
         [SerializeField] private float minFollowHeightOffset = -1.25f;
         [SerializeField] private float maxFollowHeightOffset = 3f;
@@ -40,7 +41,7 @@ namespace AICompanion.Services
         [SerializeField] private Transform selectedTarget;
         [SerializeField] private bool exploreMode;
         [SerializeField] private float fullBodyFramingScale = 0.88f;
-        [SerializeField] private float fullBodyVerticalBias = -0.08f;
+        [SerializeField] private float fullBodyVerticalBias = -0.12f;
 
         private Camera cam;
         private Vector3 currentTargetCamPos;
@@ -270,7 +271,7 @@ namespace AICompanion.Services
                 ResetToFraming(
                     targetFocusPos,
                     targetHeight,
-                    8f,
+                    16f,
                     GetFaceForwardYaw(targetGo));
                 focusPos = targetFocusPos;
                 isInteracting = true;
@@ -515,18 +516,41 @@ namespace AICompanion.Services
 
             if (!exploreMode)
             {
+                float speedMultiplier =
+                    Keyboard.current.leftShiftKey.isPressed
+                        ? sprintMultiplier
+                        : 1f;
+
                 float orbitInput = 0f;
                 if (Keyboard.current.aKey.isPressed) orbitInput -= 1f;
                 if (Keyboard.current.dKey.isPressed) orbitInput += 1f;
                 orbitYaw +=
-                    orbitInput * keyboardOrbitSpeed * Time.deltaTime;
+                    orbitInput *
+                    keyboardOrbitSpeed *
+                    speedMultiplier *
+                    Time.deltaTime;
+
+                float zoomInput = 0f;
+                if (Keyboard.current.wKey.isPressed) zoomInput -= 1f;
+                if (Keyboard.current.sKey.isPressed) zoomInput += 1f;
+                zoomOffset = Mathf.Clamp(
+                    zoomOffset +
+                    zoomInput *
+                    keyboardZoomSpeed *
+                    speedMultiplier *
+                    Time.deltaTime,
+                    minZoom,
+                    maxZoom);
 
                 float verticalInput = 0f;
                 if (Keyboard.current.qKey.isPressed) verticalInput -= 1f;
                 if (Keyboard.current.eKey.isPressed) verticalInput += 1f;
                 followHeightOffset = Mathf.Clamp(
                     followHeightOffset +
-                    verticalInput * followVerticalSpeed * Time.deltaTime,
+                    verticalInput *
+                    followVerticalSpeed *
+                    speedMultiplier *
+                    Time.deltaTime,
                     minFollowHeightOffset,
                     maxFollowHeightOffset);
                 return;
@@ -664,7 +688,10 @@ namespace AICompanion.Services
                 ? EventSystem.current.currentSelectedGameObject
                 : null;
 
-            return selected != null && selected.GetComponentInParent<TMP_InputField>() != null;
+            TMP_InputField inputField = selected != null
+                ? selected.GetComponentInParent<TMP_InputField>()
+                : null;
+            return inputField != null && inputField.isFocused;
         }
     }
 }
