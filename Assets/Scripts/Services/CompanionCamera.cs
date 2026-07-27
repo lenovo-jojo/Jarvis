@@ -73,6 +73,7 @@ namespace AICompanion.Services
         private void Awake()
         {
             cam = GetComponent<Camera>();
+            EnsureRuntimeDefaults();
         }
 
         public float OrbitYaw => orbitYaw;
@@ -87,6 +88,56 @@ namespace AICompanion.Services
             if (config != null && config.hasSavedFrame)
             {
                 ApplySavedState(config);
+            }
+        }
+
+        private void EnsureRuntimeDefaults()
+        {
+            // Older scenes do not contain camera fields added after the
+            // component was first serialized. Unity can restore those missing
+            // values as zero, which collapses both distance and movement
+            // ranges. Repair only invalid values so inspector tuning is kept.
+            if (groundClearance <= 0f)
+            {
+                groundClearance = 0.25f;
+            }
+            if (minCameraDistance <= 0f)
+            {
+                minCameraDistance = 0.45f;
+            }
+            if (maxCameraDistance <= minCameraDistance)
+            {
+                maxCameraDistance = 12f;
+            }
+            if (keyboardOrbitSpeed <= 0f)
+            {
+                keyboardOrbitSpeed = 70f;
+            }
+            if (keyboardZoomSpeed <= 0f)
+            {
+                keyboardZoomSpeed = 1.8f;
+            }
+            if (followVerticalSpeed <= 0f)
+            {
+                followVerticalSpeed = 2f;
+            }
+            if (maxFollowHeightOffset <= minFollowHeightOffset)
+            {
+                minFollowHeightOffset = -1.25f;
+                maxFollowHeightOffset = 3f;
+            }
+            if (verticalDragSensitivity <= 0f)
+            {
+                verticalDragSensitivity = 0.005f;
+            }
+            if (maxVerticalFrameOffset <= minVerticalFrameOffset)
+            {
+                minVerticalFrameOffset = -1.5f;
+                maxVerticalFrameOffset = 2.5f;
+            }
+            if (fullBodyFramingScale <= 0.1f)
+            {
+                fullBodyFramingScale = 0.88f;
             }
         }
 
