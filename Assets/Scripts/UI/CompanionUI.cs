@@ -590,10 +590,7 @@ namespace AICompanion.UI
             {
                 MoveToQuickActions(micToggle, quickActions);
             }
-            if (exploreModeToggle != null)
-            {
-                MoveToQuickActions(exploreModeToggle, quickActions);
-            }
+            ConfigureCameraModeToggle();
 
             chatMenuToggleButton = CreateMenuToggleButton(
                 "ChatMenuToggleButton",
@@ -1560,6 +1557,48 @@ namespace AICompanion.UI
             }
         }
 
+        private void ConfigureCameraModeToggle()
+        {
+            if (exploreModeToggle == null || safeAreaRoot == null)
+            {
+                return;
+            }
+
+            exploreModeToggle.transform.SetParent(
+                safeAreaRoot,
+                false);
+            exploreModeToggle.transform.SetAsLastSibling();
+
+            EnsureLayoutElement(
+                exploreModeToggle.gameObject,
+                44f);
+            LayoutElement layoutElement =
+                exploreModeToggle.GetComponent<LayoutElement>();
+            layoutElement.ignoreLayout = true;
+            layoutElement.minWidth = 190f;
+            layoutElement.preferredWidth = 190f;
+            layoutElement.minHeight = 44f;
+            layoutElement.preferredHeight = 44f;
+
+            Image panel =
+                exploreModeToggle.GetComponent<Image>();
+            if (panel == null)
+            {
+                panel =
+                    exploreModeToggle.gameObject.AddComponent<Image>();
+            }
+            panel.sprite = GetRoundedPanelSprite();
+            panel.type = Image.Type.Sliced;
+            panel.color = new Color32(239, 250, 246, 242);
+            panel.raycastTarget = false;
+
+            SetToggleText(
+                exploreModeToggle,
+                exploreModeToggle.isOn
+                    ? "explore mode"
+                    : "character mode");
+        }
+
         private void MoveToQuickActions(
             Selectable control,
             RectTransform actionsRect,
@@ -2492,6 +2531,7 @@ namespace AICompanion.UI
                 PositionTopMenuToggle();
             }
             PositionPoseShortcut(isPortrait);
+            PositionCameraModeToggle(isPortrait);
             PositionPosePicker(isPortrait);
 
             if (chatDock == null)
@@ -2681,6 +2721,33 @@ namespace AICompanion.UI
                 -edgeMargin,
                 -(edgeMargin + menuHeight + 10f));
             poseRect.sizeDelta = new Vector2(40f, 40f);
+        }
+
+        private void PositionCameraModeToggle(bool isPortrait)
+        {
+            if (exploreModeToggle == null)
+            {
+                return;
+            }
+
+            float edgeMargin = isPortrait ? 18f : 28f;
+            float menuHeight = isTopMenuCollapsed
+                ? 54f
+                : isPortrait
+                    ? 204f
+                    : 210f;
+
+            RectTransform modeRect =
+                exploreModeToggle.GetComponent<RectTransform>();
+            modeRect.anchorMin = Vector2.one;
+            modeRect.anchorMax = Vector2.one;
+            modeRect.pivot = Vector2.one;
+            modeRect.anchoredPosition = new Vector2(
+                -edgeMargin,
+                -(edgeMargin + menuHeight + 60f));
+            modeRect.sizeDelta = new Vector2(
+                isPortrait ? 220f : 190f,
+                44f);
         }
 
         private void PositionPosePicker(bool isPortrait)
@@ -3118,7 +3185,10 @@ namespace AICompanion.UI
                 }
             }
 
-            DeferDropdownActivation(dropdownGo);
+            // This dropdown is a hidden data source for the custom pose menu.
+            // Reactivating it on the next frame makes it escape the settings
+            // layout as an orphaned floating control.
+            dropdownGo.SetActive(false);
             return dropdown;
         }
 
