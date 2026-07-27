@@ -21,6 +21,8 @@ namespace AICompanion.Services
         [SerializeField] private float minPitch = -45f;
         [SerializeField] private float maxPitch = 45f;
         [SerializeField] private float groundClearance = 0.25f;
+        [SerializeField] private float minCameraDistance = 0.45f;
+        [SerializeField] private float maxCameraDistance = 12f;
 
         [Header("Scene Navigation")]
         [SerializeField] private float moveSpeed = 2.5f;
@@ -247,7 +249,10 @@ namespace AICompanion.Services
 
             // Calculate target distance after zoom
             ApplySliderZoom();
-            float finalDistance = baseDistance + zoomOffset;
+            float finalDistance = Mathf.Clamp(
+                baseDistance + zoomOffset,
+                minCameraDistance,
+                maxCameraDistance);
 
             // Compute ideal/target position based on orbit angles
             // Convert Yaw/Pitch angles to look direction pointing back from center
@@ -374,12 +379,14 @@ namespace AICompanion.Services
         public void SetZoomInSlider(float normalizedValue)
         {
             sliderZoomInValue = Mathf.Clamp01(normalizedValue);
+            sliderZoomOutValue = 0f;
             hasSliderInput = true;
         }
 
         public void SetZoomOutSlider(float normalizedValue)
         {
             sliderZoomOutValue = Mathf.Clamp01(normalizedValue);
+            sliderZoomInValue = 0f;
             hasSliderInput = true;
         }
 
@@ -389,7 +396,12 @@ namespace AICompanion.Services
             {
                 return;
             }
-            float sliderDrivenZoom = Mathf.Lerp(minZoom, maxZoom, 0.5f + (sliderZoomOutValue - sliderZoomInValue) * 0.5f);
+            // Zero on both sliders must preserve the current neutral framing.
+            // Mapping through Lerp made the first slider movement jump to the
+            // midpoint of the zoom range.
+            float sliderDrivenZoom =
+                (sliderZoomInValue * minZoom) +
+                (sliderZoomOutValue * maxZoom);
             zoomOffset = Mathf.Clamp(sliderDrivenZoom, minZoom, maxZoom);
         }
 

@@ -127,6 +127,10 @@ namespace AICompanion.Services
         private bool isUsingCustomVrm;
         private VRMBlendShapeProxy vrmProxy;
 
+        [Header("World Placement")]
+        [SerializeField] private Transform seatingAnchor;
+        [SerializeField] private bool snapToSeatingAnchorOnLoad = true;
+
         private bool isAnimationEnabled = true;
 
         // VRM 1.0 / VRM Animation runtime state
@@ -349,6 +353,7 @@ namespace AICompanion.Services
         private float verticalVelocity;
         private int groundedPoseIndex = -1;
         private float seatedGroundingTimer;
+        private bool hasUserPlacedAvatar;
 
         private const float BlanketSurfaceY = 0.01f;
         private const float GroundSnapDistance = 0.015f;
@@ -806,6 +811,7 @@ namespace AICompanion.Services
                     {
                         dragOffset = currentAvatarGo.transform.position - ray.GetPoint(enter);
                         isDragging = true;
+                        hasUserPlacedAvatar = true;
                         verticalVelocity = 0f;
                     }
                 }
@@ -938,11 +944,12 @@ namespace AICompanion.Services
                     return;
                 }
 
-                float targetHipY = BlanketSurfaceY + SeatedHipHeight;
+                float surfaceY = GetSeatingSurfaceY();
+                float targetHipY = surfaceY + SeatedHipHeight;
                 float hipCorrection = targetHipY - hipsBone.position.y;
                 Bounds seatedBounds = GetAvatarBounds();
                 float penetrationCorrection =
-                    BlanketSurfaceY -
+                    surfaceY -
                     AllowedSeatedPenetration -
                     seatedBounds.min.y;
 
@@ -959,6 +966,17 @@ namespace AICompanion.Services
                         Vector3.up * safeCorrection;
                 }
 
+                if (seatingAnchor != null &&
+                    snapToSeatingAnchorOnLoad &&
+                    !hasUserPlacedAvatar)
+                {
+                    Vector3 anchoredPosition =
+                        currentAvatarGo.transform.position;
+                    anchoredPosition.x = seatingAnchor.position.x;
+                    anchoredPosition.z = seatingAnchor.position.z;
+                    currentAvatarGo.transform.position = anchoredPosition;
+                }
+
                 groundedPoseIndex = currentPoseIndex;
                 seatedGroundingTimer = 0f;
                 verticalVelocity = 0f;
@@ -968,8 +986,10 @@ namespace AICompanion.Services
             groundedPoseIndex = -1;
             seatedGroundingTimer = 0f;
 
+            float groundSurfaceY = GetSeatingSurfaceY();
             Bounds bounds = GetAvatarBounds();
-            float heightAboveBlanket = bounds.min.y - BlanketSurfaceY;
+            float heightAboveBlanket =
+                bounds.min.y - groundSurfaceY;
 
             if (heightAboveBlanket > GroundSnapDistance)
             {
@@ -994,6 +1014,20 @@ namespace AICompanion.Services
             }
 
             verticalVelocity = 0f;
+        }
+
+        private float GetSeatingSurfaceY()
+        {
+            if (seatingAnchor == null)
+            {
+                return BlanketSurfaceY;
+            }
+
+            Renderer anchorRenderer =
+                seatingAnchor.GetComponent<Renderer>();
+            return anchorRenderer != null
+                ? anchorRenderer.bounds.max.y
+                : seatingAnchor.position.y;
         }
 
         private bool ShouldSnapHipsToBlanket()
@@ -1185,6 +1219,7 @@ namespace AICompanion.Services
         {
             isUsingCustomVrm = false;
             vrmProxy = null;
+            hasUserPlacedAvatar = false;
 
             if (currentAvatarGo != null)
             {
@@ -1327,6 +1362,7 @@ namespace AICompanion.Services
 
                 currentAvatarGo = vrm10Instance.gameObject;
                 currentAvatarGo.name = "CompanionAvatarVRM";
+                hasUserPlacedAvatar = false;
                 vrm10Instance.UpdateType = Vrm10Instance.UpdateTypes.None;
                 SanitizeSpringBones(vrm10Instance);
 
@@ -1846,6 +1882,10 @@ namespace AICompanion.Services
             blanket.name = "PicnicStage_Blanket";
             blanket.transform.position = new Vector3(0f, 0.01f, 2f); // Slightly above grass to avoid z-fighting
             blanket.transform.localScale = new Vector3(0.25f, 1f, 0.25f); // 2.5m x 2.5m blanket
+            if (seatingAnchor == null)
+            {
+                seatingAnchor = blanket.transform;
+            }
 
             // Red-and-White Checkered Pattern Texture
             Texture2D checkeredTex = new Texture2D(2, 2);
