@@ -347,12 +347,16 @@ namespace AICompanion.Services
         private Plane dragPlane;
         private Vector3 dragOffset;
         private float verticalVelocity;
+        private int groundedPoseIndex = -1;
+        private float seatedGroundingTimer;
 
         private const float BlanketSurfaceY = 0.01f;
         private const float GroundSnapDistance = 0.015f;
         private const float AvatarGravity = -18f;
         private const float SeatedHipHeight = 0.1f;
         private const float HipSnapTolerance = 0.005f;
+        private const float SeatedGroundingDelay = 0.2f;
+        private const float AllowedSeatedPenetration = 0.05f;
 
         private bool isBlinking;
         private float blinkTimer;
@@ -535,6 +539,8 @@ namespace AICompanion.Services
             currentPoseIndex = Mathf.Clamp(index, 0, loadedOptionalPoses.Count - 1);
             appliedVpdPoseIndex = -1;
             hasReportedVrmaRetargetFailure = false;
+            groundedPoseIndex = -1;
+            seatedGroundingTimer = 0f;
             CustomPose cp = loadedOptionalPoses[currentPoseIndex];
 
             Debug.Log(
@@ -825,6 +831,8 @@ namespace AICompanion.Services
             {
                 isDragging = false;
                 verticalVelocity = 0f;
+                groundedPoseIndex = -1;
+                seatedGroundingTimer = 0f;
             }
         }
 
@@ -912,15 +920,36 @@ namespace AICompanion.Services
 
             if (ShouldSnapHipsToBlanket())
             {
+                if (groundedPoseIndex == currentPoseIndex)
+                {
+                    verticalVelocity = 0f;
+                    return;
+                }
+
+                if (activeVrmaAnimation == null &&
+                    appliedVpdPoseIndex != currentPoseIndex)
+                {
+                    return;
+                }
+
+                seatedGroundingTimer += Time.deltaTime;
+                if (seatedGroundingTimer < SeatedGroundingDelay)
+                {
+                    return;
+                }
+
                 float targetHipY = BlanketSurfaceY + SeatedHipHeight;
                 float hipCorrection = targetHipY - hipsBone.position.y;
                 Bounds seatedBounds = GetAvatarBounds();
                 float penetrationCorrection =
-                    BlanketSurfaceY - seatedBounds.min.y;
+                    BlanketSurfaceY -
+                    AllowedSeatedPenetration -
+                    seatedBounds.min.y;
 
-                // Seat the hips as low as the pose allows, but never lower
-                // the avatar far enough for feet, clothing, or hair to pass
-                // through the blanket.
+                // Settle once after the pose has taken effect, allowing a
+                // small overlap when the authored pose needs it. Repeating
+                // this correction every frame fights the animation loop and
+                // produces visible jitter.
                 float safeCorrection =
                     Mathf.Max(hipCorrection, penetrationCorrection);
 
@@ -930,9 +959,14 @@ namespace AICompanion.Services
                         Vector3.up * safeCorrection;
                 }
 
+                groundedPoseIndex = currentPoseIndex;
+                seatedGroundingTimer = 0f;
                 verticalVelocity = 0f;
                 return;
             }
+
+            groundedPoseIndex = -1;
+            seatedGroundingTimer = 0f;
 
             Bounds bounds = GetAvatarBounds();
             float heightAboveBlanket = bounds.min.y - BlanketSurfaceY;
@@ -953,10 +987,12 @@ namespace AICompanion.Services
                 return;
             }
 
-            // Correct pose changes that place feet or clothing below the
-            // blanket, and remove tiny gaps without visible jitter.
-            currentAvatarGo.transform.position +=
-                Vector3.up * -heightAboveBlanket;
+            if (heightAboveBlanket < -GroundSnapDistance)
+            {
+                currentAvatarGo.transform.position +=
+                    Vector3.up * -heightAboveBlanket;
+            }
+
             verticalVelocity = 0f;
         }
 
