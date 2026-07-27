@@ -25,9 +25,7 @@ namespace AICompanion.Services
         [SerializeField] private float maxCameraDistance = 12f;
         [SerializeField] private float keyboardOrbitSpeed = 70f;
         [SerializeField] private float keyboardZoomSpeed = 1.8f;
-        [SerializeField] private float followVerticalSpeed = 2f;
-        [SerializeField] private float minFollowHeightOffset = -1.25f;
-        [SerializeField] private float maxFollowHeightOffset = 3f;
+        [SerializeField] private float keyboardPitchSpeed = 55f;
 
         [Header("Scene Navigation")]
         [SerializeField] private float moveSpeed = 2.5f;
@@ -40,8 +38,8 @@ namespace AICompanion.Services
         [Header("Character Tracking")]
         [SerializeField] private Transform selectedTarget;
         [SerializeField] private bool exploreMode;
-        [SerializeField] private float fullBodyFramingScale = 0.88f;
-        [SerializeField] private float fullBodyVerticalBias = -0.12f;
+        [SerializeField] private float fullBodyFramingScale = 1f;
+        [SerializeField] private float fullBodyVerticalBias = 0f;
 
         private Camera cam;
         private Vector3 currentTargetCamPos;
@@ -61,6 +59,7 @@ namespace AICompanion.Services
         private GameObject framedTarget;
         private Vector3 stableLocalFullBodyFocusPos;
         private float stableFullBodyFocusHeight = 1.8f;
+        private Vector3[] stableLocalFullBodyBoundsCorners;
         private Vector3 stableLocalFaceFocusPos;
         private float stableFaceFocusHeight = 0.6f;
         private Vector3 stableLocalFaceForward = Vector3.forward;
@@ -68,7 +67,6 @@ namespace AICompanion.Services
         private bool hasManualFocus;
         private Vector3 manualFocusPosition;
         private bool snapCameraThisFrame;
-        private float followHeightOffset;
 
         private void Awake()
         {
@@ -117,14 +115,9 @@ namespace AICompanion.Services
             {
                 keyboardZoomSpeed = 1.8f;
             }
-            if (followVerticalSpeed <= 0f)
+            if (keyboardPitchSpeed <= 0f)
             {
-                followVerticalSpeed = 2f;
-            }
-            if (maxFollowHeightOffset <= minFollowHeightOffset)
-            {
-                minFollowHeightOffset = -1.25f;
-                maxFollowHeightOffset = 3f;
+                keyboardPitchSpeed = 55f;
             }
             if (verticalDragSensitivity <= 0f)
             {
@@ -137,7 +130,7 @@ namespace AICompanion.Services
             }
             if (fullBodyFramingScale <= 0.1f)
             {
-                fullBodyFramingScale = 0.88f;
+                fullBodyFramingScale = 1f;
             }
         }
 
@@ -305,7 +298,6 @@ namespace AICompanion.Services
                 orbitPitch = 10f;
                 zoomOffset = 0f;
                 sceneOffset = Vector3.zero;
-                followHeightOffset = 0f;
                 hasManualFocus = false;
                 isInteracting = true;
             }
@@ -316,13 +308,17 @@ namespace AICompanion.Services
             {
                 // Full-body reset.
                 isFaceFocusMode = false;
+                // The selected pose can be much wider/deeper than the avatar's
+                // load pose. Capture it once on reset so the frame is stable
+                // while still fitting the current seated silhouette.
+                CacheStableFraming(targetGo);
                 targetFocusPos = targetGo.transform.TransformPoint(
                     stableLocalFullBodyFocusPos);
                 targetHeight = stableFullBodyFocusHeight;
                 ResetToFraming(
                     targetFocusPos,
                     targetHeight,
-                    16f,
+                    -10f,
                     GetFaceForwardYaw(targetGo));
                 focusPos = targetFocusPos;
                 isInteracting = true;
@@ -346,14 +342,30 @@ namespace AICompanion.Services
                 isInteracting = true;
             }
 
+            Quaternion orbitRotation =
+                Quaternion.Euler(orbitPitch, orbitYaw, 0f);
+            Vector3 targetOffsetDir =
+                orbitRotation * Vector3.forward;
+
             // Calculate optimal base framing distance after shortcut input may
-            // have switched between face and full-body framing.
+            // have switched between face and full-body framing. Full-body mode
+            // also accounts for pose depth, preventing feet that point toward
+            // the lens from becoming an extreme wide-angle close-up.
             float fov = cam != null ? cam.fieldOfView : 60f;
             float radFov = fov * Mathf.Deg2Rad;
             float baseDistance =
                 (smoothedFocusHeight / 2.0f) *
                 padding /
                 Mathf.Tan(radFov / 2.0f);
+            if (!isFaceFocusMode)
+            {
+                baseDistance = Mathf.Max(
+                    baseDistance,
+                    CalculateFullBodyFitDistance(
+                        targetGo,
+                        focusPos,
+                        targetOffsetDir));
+            }
 
             // Calculate target distance after zoom
             ApplySliderZoom();
@@ -364,13 +376,10 @@ namespace AICompanion.Services
 
             // Compute ideal/target position based on orbit angles
             // Convert Yaw/Pitch angles to look direction pointing back from center
-            Quaternion orbitRotation = Quaternion.Euler(orbitPitch, orbitYaw, 0f);
-            Vector3 targetOffsetDir = orbitRotation * Vector3.forward;
             Vector3 idealCamPos = ClampAboveGround(
                 focusPos +
                 targetOffsetDir * finalDistance +
-                positionOffset +
-                Vector3.up * followHeightOffset);
+                positionOffset);
 
             if (!isInitialized || snapCameraThisFrame)
             {
@@ -420,7 +429,6 @@ namespace AICompanion.Services
             orbitPitch = targetPitch;
             zoomOffset = 0f;
             sceneOffset = Vector3.zero;
-            followHeightOffset = 0f;
             hasManualFocus = false;
             sliderZoomInValue = 0f;
             sliderZoomOutValue = 0f;
@@ -510,6 +518,15 @@ namespace AICompanion.Services
                 targetGo.transform.InverseTransformPoint(
                     fullBodyFocusPosition);
             stableFullBodyFocusHeight = fullBodyFocusHeight;
+            Vector3[] worldBoundsCorners = GetBoundsCorners(bounds);
+            stableLocalFullBodyBoundsCorners =
+                new Vector3[worldBoundsCorners.Length];
+            for (int i = 0; i < worldBoundsCorners.Length; i++)
+            {
+                stableLocalFullBodyBoundsCorners[i] =
+                    targetGo.transform.InverseTransformPoint(
+                        worldBoundsCorners[i]);
+            }
             stableLocalFaceFocusPos =
                 targetGo.transform.InverseTransformPoint(
                     faceFocusPosition);
@@ -596,14 +613,14 @@ namespace AICompanion.Services
                 float verticalInput = 0f;
                 if (Keyboard.current.qKey.isPressed) verticalInput -= 1f;
                 if (Keyboard.current.eKey.isPressed) verticalInput += 1f;
-                followHeightOffset = Mathf.Clamp(
-                    followHeightOffset +
+                orbitPitch = Mathf.Clamp(
+                    orbitPitch -
                     verticalInput *
-                    followVerticalSpeed *
+                    keyboardPitchSpeed *
                     speedMultiplier *
                     Time.deltaTime,
-                    minFollowHeightOffset,
-                    maxFollowHeightOffset);
+                    minPitch,
+                    maxPitch);
                 return;
             }
 
@@ -684,8 +701,7 @@ namespace AICompanion.Services
 
             Animator[] animators =
                 UnityEngine.Object.FindObjectsByType<Animator>(
-                    FindObjectsInactive.Exclude,
-                    FindObjectsSortMode.None);
+                    FindObjectsInactive.Exclude);
             foreach (Animator animator in animators)
             {
                 if (animator == null || !animator.isHuman)
@@ -731,6 +747,59 @@ namespace AICompanion.Services
             return Mathf.Atan2(
                 faceForward.x,
                 faceForward.z) * Mathf.Rad2Deg;
+        }
+
+        private float CalculateFullBodyFitDistance(
+            GameObject targetGo,
+            Vector3 focusPosition,
+            Vector3 cameraOffsetDirection)
+        {
+            if (cam == null ||
+                stableLocalFullBodyBoundsCorners == null ||
+                stableLocalFullBodyBoundsCorners.Length == 0)
+            {
+                return minCameraDistance;
+            }
+
+            Vector3 viewDirection = -cameraOffsetDirection.normalized;
+            Quaternion viewRotation =
+                Quaternion.LookRotation(viewDirection, Vector3.up);
+            Quaternion inverseViewRotation =
+                Quaternion.Inverse(viewRotation);
+            float verticalTangent =
+                Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);
+            float horizontalTangent =
+                verticalTangent * Mathf.Max(cam.aspect, 0.1f);
+            float requiredDistance = minCameraDistance;
+
+            foreach (Vector3 localCorner in stableLocalFullBodyBoundsCorners)
+            {
+                Vector3 worldCorner =
+                    targetGo.transform.TransformPoint(localCorner);
+                Vector3 viewRelative =
+                    inverseViewRotation *
+                    (worldCorner - focusPosition);
+
+                float horizontalFit =
+                    Mathf.Abs(viewRelative.x) *
+                    padding /
+                    Mathf.Max(horizontalTangent, 0.01f);
+                float verticalFit =
+                    Mathf.Abs(viewRelative.y) *
+                    padding /
+                    Mathf.Max(verticalTangent, 0.01f);
+                float nearPlaneFit =
+                    cam.nearClipPlane + 0.05f;
+
+                requiredDistance = Mathf.Max(
+                    requiredDistance,
+                    Mathf.Max(
+                        horizontalFit,
+                        Mathf.Max(verticalFit, nearPlaneFit)) -
+                    viewRelative.z);
+            }
+
+            return requiredDistance;
         }
 
         private static bool IsTypingIntoTextField()
