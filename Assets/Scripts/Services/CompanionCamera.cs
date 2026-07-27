@@ -48,6 +48,7 @@ namespace AICompanion.Services
         private GameObject framedTarget;
         private Vector3 stableLocalFocusPos;
         private float stableFocusHeight = 1.8f;
+        private bool snapCameraThisFrame;
 
         private void Awake()
         {
@@ -224,6 +225,26 @@ namespace AICompanion.Services
                 isInteracting = true;
             }
 
+            if (!IsTypingIntoTextField() &&
+                Keyboard.current != null &&
+                Keyboard.current.fKey.wasPressedThisFrame)
+            {
+                // Instantly restore a clean, front-facing portrait shot.
+                orbitYaw = 180f;
+                orbitPitch = 0f;
+                zoomOffset = 0f;
+                sceneOffset = Vector3.zero;
+                sliderZoomInValue = 0f;
+                sliderZoomOutValue = 0f;
+                hasSliderInput = false;
+                focusVelocity = Vector3.zero;
+                smoothedFocusPos = targetFocusPos;
+                smoothedFocusHeight = targetHeight;
+                focusPos = targetFocusPos;
+                snapCameraThisFrame = true;
+                isInteracting = true;
+            }
+
             // Calculate target distance after zoom
             ApplySliderZoom();
             float finalDistance = baseDistance + zoomOffset;
@@ -237,12 +258,13 @@ namespace AICompanion.Services
                 targetOffsetDir * finalDistance +
                 positionOffset);
 
-            if (!isInitialized)
+            if (!isInitialized || snapCameraThisFrame)
             {
                 transform.position = idealCamPos;
                 transform.rotation = Quaternion.LookRotation(focusPos - transform.position);
                 currentTargetCamPos = idealCamPos;
                 isInitialized = true;
+                snapCameraThisFrame = false;
             }
 
             if (isInteracting)
