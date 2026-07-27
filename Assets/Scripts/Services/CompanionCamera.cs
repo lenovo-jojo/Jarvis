@@ -35,6 +35,9 @@ namespace AICompanion.Services
         [SerializeField] private float minVerticalFrameOffset = -1.5f;
         [SerializeField] private float maxVerticalFrameOffset = 2.5f;
         [SerializeField] private float maxExploreHeight = 20f;
+        [SerializeField] private float exploreLookSensitivity = 0.25f;
+        [SerializeField] private float minExplorePitch = -85f;
+        [SerializeField] private float maxExplorePitch = 85f;
 
         [Header("Character Tracking")]
         [SerializeField] private Transform selectedTarget;
@@ -68,6 +71,10 @@ namespace AICompanion.Services
         private bool hasManualFocus;
         private Vector3 manualFocusPosition;
         private bool snapCameraThisFrame;
+        private Vector3 explorePosition;
+        private float exploreYaw;
+        private float explorePitch;
+        private bool hasExplorePose;
 
         private void Awake()
         {
@@ -216,7 +223,7 @@ namespace AICompanion.Services
                 smoothedFocusHeight = Mathf.Lerp(smoothedFocusHeight, targetHeight, Time.deltaTime * (1f / Mathf.Max(0.01f, focusSmoothTime)));
             }
 
-            ProcessSceneNavigation(smoothedFocusPos + sceneOffset);
+            ProcessSceneNavigation();
             Vector3 focusPos = hasManualFocus
                 ? manualFocusPosition
                 : smoothedFocusPos + sceneOffset;
@@ -252,33 +259,46 @@ namespace AICompanion.Services
                 // character framing like a third-person game camera.
                 if (!pointerOverUi && orbitDragPressed && mouseDelta.sqrMagnitude > 0.01f)
                 {
-                    orbitYaw += mouseDelta.x * rotateSensitivity;
-
-                    if (rightPressed)
+                    if (exploreMode)
                     {
-                        orbitPitch -= mouseDelta.y * rotateSensitivity;
-                        orbitPitch = Mathf.Clamp(
-                            orbitPitch,
-                            minPitch,
-                            maxPitch);
+                        EnsureExplorePose();
+                        exploreYaw += mouseDelta.x * exploreLookSensitivity;
+                        explorePitch = Mathf.Clamp(
+                            explorePitch -
+                            mouseDelta.y * exploreLookSensitivity,
+                            minExplorePitch,
+                            maxExplorePitch);
                     }
                     else
                     {
-                        float verticalDelta =
-                            mouseDelta.y * verticalDragSensitivity;
-                        if (hasManualFocus)
+                        orbitYaw += mouseDelta.x * rotateSensitivity;
+
+                        if (rightPressed)
                         {
-                            manualFocusPosition.y += verticalDelta;
-                            sceneOffset =
-                                manualFocusPosition -
-                                smoothedFocusPos;
+                            orbitPitch = Mathf.Clamp(
+                                orbitPitch -
+                                mouseDelta.y * rotateSensitivity,
+                                minPitch,
+                                maxPitch);
                         }
                         else
                         {
-                            sceneOffset.y = Mathf.Clamp(
-                                sceneOffset.y + verticalDelta,
-                                minVerticalFrameOffset,
-                                maxVerticalFrameOffset);
+                            float verticalDelta =
+                                mouseDelta.y * verticalDragSensitivity;
+                            if (hasManualFocus)
+                            {
+                                manualFocusPosition.y += verticalDelta;
+                                sceneOffset =
+                                    manualFocusPosition -
+                                    smoothedFocusPos;
+                            }
+                            else
+                            {
+                                sceneOffset.y = Mathf.Clamp(
+                                    sceneOffset.y + verticalDelta,
+                                    minVerticalFrameOffset,
+                                    maxVerticalFrameOffset);
+                            }
                         }
                     }
 
@@ -286,7 +306,9 @@ namespace AICompanion.Services
                 }
 
                 // Handle Scroll Zooming
-                if (!pointerOverUi && Mathf.Abs(scroll) > 0.01f)
+                if (!exploreMode &&
+                    !pointerOverUi &&
+                    Mathf.Abs(scroll) > 0.01f)
                 {
                     zoomOffset -= scroll * zoomSensitivity;
                     zoomOffset = Mathf.Clamp(zoomOffset, minZoom, maxZoom);
@@ -347,6 +369,15 @@ namespace AICompanion.Services
                 isInteracting = true;
             }
 
+            // Explore mode controls the camera itself. R and F deliberately
+            // skip this branch for one frame, snap to the VRM below, and then
+            // resume free flight from the snapped position.
+            if (exploreMode && !snapCameraThisFrame)
+            {
+                ProcessExploreNavigation();
+                return;
+            }
+
             Quaternion orbitRotation =
                 Quaternion.Euler(orbitPitch, orbitYaw, 0f);
             Vector3 targetOffsetDir =
@@ -393,6 +424,10 @@ namespace AICompanion.Services
                 currentTargetCamPos = idealCamPos;
                 isInitialized = true;
                 snapCameraThisFrame = false;
+                if (exploreMode)
+                {
+                    CaptureExplorePose();
+                }
             }
 
             if (isInteracting)
@@ -579,114 +614,117 @@ namespace AICompanion.Services
             zoomOffset = Mathf.Clamp(sliderDrivenZoom, minZoom, maxZoom);
         }
 
-        private void ProcessSceneNavigation(
-            Vector3 currentAutomaticFocusPosition)
+        private void ProcessSceneNavigation()
         {
             if (Keyboard.current == null || cam == null || IsTypingIntoTextField())
             {
                 return;
             }
 
-            if (!exploreMode)
+            if (exploreMode)
             {
-                float speedMultiplier =
-                    Keyboard.current.leftShiftKey.isPressed
-                        ? sprintMultiplier
-                        : 1f;
-
-                float orbitInput = 0f;
-                if (Keyboard.current.aKey.isPressed) orbitInput -= 1f;
-                if (Keyboard.current.dKey.isPressed) orbitInput += 1f;
-                orbitYaw +=
-                    orbitInput *
-                    keyboardOrbitSpeed *
-                    speedMultiplier *
-                    Time.deltaTime;
-
-                float zoomInput = 0f;
-                if (Keyboard.current.wKey.isPressed) zoomInput -= 1f;
-                if (Keyboard.current.sKey.isPressed) zoomInput += 1f;
-                zoomOffset = Mathf.Clamp(
-                    zoomOffset +
-                    zoomInput *
-                    keyboardZoomSpeed *
-                    speedMultiplier *
-                    Time.deltaTime,
-                    minZoom,
-                    maxZoom);
-
-                float verticalInput = 0f;
-                if (Keyboard.current.qKey.isPressed) verticalInput -= 1f;
-                if (Keyboard.current.eKey.isPressed) verticalInput += 1f;
-                orbitPitch = Mathf.Clamp(
-                    orbitPitch -
-                    verticalInput *
-                    keyboardPitchSpeed *
-                    speedMultiplier *
-                    Time.deltaTime,
-                    minPitch,
-                    maxPitch);
                 return;
             }
 
-            Vector3 moveInput = Vector3.zero;
-            if (Keyboard.current.wKey.isPressed) moveInput += Vector3.forward;
-            if (Keyboard.current.sKey.isPressed) moveInput += Vector3.back;
-            if (Keyboard.current.aKey.isPressed) moveInput += Vector3.left;
-            if (Keyboard.current.dKey.isPressed) moveInput += Vector3.right;
-            if (Keyboard.current.qKey.isPressed) moveInput += Vector3.down;
-            if (Keyboard.current.eKey.isPressed) moveInput += Vector3.up;
+            float speedMultiplier =
+                Keyboard.current.leftShiftKey.isPressed
+                    ? sprintMultiplier
+                    : 1f;
 
-            if (!hasManualFocus)
+            float orbitInput = 0f;
+            if (Keyboard.current.aKey.isPressed) orbitInput -= 1f;
+            if (Keyboard.current.dKey.isPressed) orbitInput += 1f;
+            orbitYaw +=
+                orbitInput *
+                keyboardOrbitSpeed *
+                speedMultiplier *
+                Time.deltaTime;
+
+            float zoomInput = 0f;
+            if (Keyboard.current.wKey.isPressed) zoomInput -= 1f;
+            if (Keyboard.current.sKey.isPressed) zoomInput += 1f;
+            zoomOffset = Mathf.Clamp(
+                zoomOffset +
+                zoomInput *
+                keyboardZoomSpeed *
+                speedMultiplier *
+                Time.deltaTime,
+                minZoom,
+                maxZoom);
+
+            float verticalInput = 0f;
+            if (Keyboard.current.qKey.isPressed) verticalInput -= 1f;
+            if (Keyboard.current.eKey.isPressed) verticalInput += 1f;
+            orbitPitch = Mathf.Clamp(
+                orbitPitch -
+                verticalInput *
+                keyboardPitchSpeed *
+                speedMultiplier *
+                Time.deltaTime,
+                minPitch,
+                maxPitch);
+        }
+
+        private void ProcessExploreNavigation()
+        {
+            EnsureExplorePose();
+
+            if (Keyboard.current != null && !IsTypingIntoTextField())
             {
-                manualFocusPosition =
-                    currentAutomaticFocusPosition;
-                manualFocusPosition.y = Mathf.Clamp(
-                    manualFocusPosition.y,
-                    groundClearance,
-                    maxExploreHeight);
-                hasManualFocus = true;
-                sceneOffset =
-                    manualFocusPosition - smoothedFocusPos;
+                Vector3 localMove = Vector3.zero;
+                if (Keyboard.current.wKey.isPressed) localMove += Vector3.forward;
+                if (Keyboard.current.sKey.isPressed) localMove += Vector3.back;
+                if (Keyboard.current.aKey.isPressed) localMove += Vector3.left;
+                if (Keyboard.current.dKey.isPressed) localMove += Vector3.right;
+                if (Keyboard.current.qKey.isPressed) localMove += Vector3.down;
+                if (Keyboard.current.eKey.isPressed) localMove += Vector3.up;
+
+                if (localMove.sqrMagnitude > 0f)
+                {
+                    Quaternion lookRotation =
+                        Quaternion.Euler(explorePitch, exploreYaw, 0f);
+                    Vector3 worldMove =
+                        (lookRotation * Vector3.forward * localMove.z) +
+                        (lookRotation * Vector3.right * localMove.x) +
+                        (Vector3.up * localMove.y);
+                    float speed = moveSpeed *
+                        (Keyboard.current.leftShiftKey.isPressed
+                            ? sprintMultiplier
+                            : 1f);
+                    explorePosition +=
+                        worldMove.normalized * speed * Time.deltaTime;
+                }
             }
 
-            if (moveInput.sqrMagnitude > 0f)
+            explorePosition.y = Mathf.Clamp(
+                explorePosition.y,
+                groundClearance,
+                maxExploreHeight);
+            transform.SetPositionAndRotation(
+                explorePosition,
+                Quaternion.Euler(explorePitch, exploreYaw, 0f));
+            currentTargetCamPos = explorePosition;
+            isInitialized = true;
+        }
+
+        private void EnsureExplorePose()
+        {
+            if (!hasExplorePose)
             {
-                float speed = moveSpeed * (Keyboard.current.leftShiftKey.isPressed ? sprintMultiplier : 1f);
-                Vector3 planarForward =
-                    Vector3.ProjectOnPlane(
-                        cam.transform.forward,
-                        Vector3.up);
-                if (planarForward.sqrMagnitude < 0.001f)
-                {
-                    planarForward = Vector3.forward;
-                }
-                planarForward.Normalize();
-
-                Vector3 planarRight =
-                    Vector3.ProjectOnPlane(
-                        cam.transform.right,
-                        Vector3.up);
-                if (planarRight.sqrMagnitude < 0.001f)
-                {
-                    planarRight = Vector3.right;
-                }
-                planarRight.Normalize();
-
-                Vector3 worldMove =
-                    (planarForward * moveInput.z) +
-                    (planarRight * moveInput.x) +
-                    (Vector3.up * moveInput.y);
-                manualFocusPosition +=
-                    worldMove.normalized * speed * Time.deltaTime;
-                manualFocusPosition.y = Mathf.Clamp(
-                    manualFocusPosition.y,
-                    groundClearance,
-                    maxExploreHeight);
-
-                sceneOffset =
-                    manualFocusPosition - smoothedFocusPos;
+                CaptureExplorePose();
             }
+        }
+
+        private void CaptureExplorePose()
+        {
+            explorePosition = ClampAboveGround(transform.position);
+            Vector3 euler = transform.eulerAngles;
+            exploreYaw = euler.y;
+            explorePitch = Mathf.Clamp(
+                Mathf.DeltaAngle(0f, euler.x),
+                minExplorePitch,
+                maxExplorePitch);
+            hasExplorePose = true;
         }
 
         public void SetExploreMode(bool enabled)
@@ -700,10 +738,8 @@ namespace AICompanion.Services
             }
             else
             {
-                // LateUpdate establishes a world-space focus point from the
-                // current view, immediately detaching Explore Mode from VRM
-                // movement while preserving the visible composition.
                 hasManualFocus = false;
+                CaptureExplorePose();
             }
         }
 
