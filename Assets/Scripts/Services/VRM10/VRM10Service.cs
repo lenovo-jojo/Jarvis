@@ -351,6 +351,8 @@ namespace AICompanion.Services
         private const float BlanketSurfaceY = 0.01f;
         private const float GroundSnapDistance = 0.015f;
         private const float AvatarGravity = -18f;
+        private const float SeatedHipHeight = 0.1f;
+        private const float HipSnapTolerance = 0.005f;
 
         private bool isBlinking;
         private float blinkTimer;
@@ -908,6 +910,21 @@ namespace AICompanion.Services
                 return;
             }
 
+            if (ShouldSnapHipsToBlanket())
+            {
+                float targetHipY = BlanketSurfaceY + SeatedHipHeight;
+                float hipCorrection = targetHipY - hipsBone.position.y;
+
+                if (Mathf.Abs(hipCorrection) > HipSnapTolerance)
+                {
+                    currentAvatarGo.transform.position +=
+                        Vector3.up * hipCorrection;
+                }
+
+                verticalVelocity = 0f;
+                return;
+            }
+
             Bounds bounds = GetAvatarBounds();
             float heightAboveBlanket = bounds.min.y - BlanketSurfaceY;
 
@@ -932,6 +949,30 @@ namespace AICompanion.Services
             currentAvatarGo.transform.position +=
                 Vector3.up * -heightAboveBlanket;
             verticalVelocity = 0f;
+        }
+
+        private bool ShouldSnapHipsToBlanket()
+        {
+            if (hipsBone == null ||
+                currentPoseIndex < 0 ||
+                currentPoseIndex >= loadedOptionalPoses.Count)
+            {
+                return false;
+            }
+
+            string poseName = loadedOptionalPoses[currentPoseIndex].name;
+            return poseName.Equals(
+                       "Feet Focus",
+                       StringComparison.OrdinalIgnoreCase) ||
+                   poseName.Equals(
+                       "Optional Pose C",
+                       StringComparison.OrdinalIgnoreCase) ||
+                   poseName.Equals(
+                       "Holding Legs Up",
+                       StringComparison.OrdinalIgnoreCase) ||
+                   poseName.Equals(
+                       "Optional Pose D",
+                       StringComparison.OrdinalIgnoreCase);
         }
 
         private void ProcessVrmRuntime()
@@ -1433,12 +1474,12 @@ namespace AICompanion.Services
                 }
                 else
                 {
-                    // Start new picnic sessions in a relaxed seated pose.
+                    // Start new picnic sessions in the cozy seated pose.
                     int defaultPoseIdx = -1;
                     for (int i = 0; i < loadedOptionalPoses.Count; i++)
                     {
                         if (loadedOptionalPoses[i].name.Equals(
-                            "Optional Pose C",
+                            "Feet Focus",
                             StringComparison.OrdinalIgnoreCase))
                         {
                             defaultPoseIdx = i;

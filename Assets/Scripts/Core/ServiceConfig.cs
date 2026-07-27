@@ -88,7 +88,7 @@ namespace AICompanion.Core
                     if (config != null &&
                         config.picnicSeatingMigrationVersion < 2)
                     {
-                        config.savedPoseName = "Optional Pose C";
+                        config.savedPoseName = "Feet Focus";
                         config.avatarPosX = 0f;
                         config.avatarPosY = 0.02f;
                         config.avatarPosZ = 2f;
