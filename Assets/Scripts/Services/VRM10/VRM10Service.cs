@@ -346,6 +346,11 @@ namespace AICompanion.Services
         private bool isDragging;
         private Plane dragPlane;
         private Vector3 dragOffset;
+        private float verticalVelocity;
+
+        private const float BlanketSurfaceY = 0.01f;
+        private const float GroundSnapDistance = 0.015f;
+        private const float AvatarGravity = -18f;
 
         private bool isBlinking;
         private float blinkTimer;
@@ -793,6 +798,7 @@ namespace AICompanion.Services
                     {
                         dragOffset = currentAvatarGo.transform.position - ray.GetPoint(enter);
                         isDragging = true;
+                        verticalVelocity = 0f;
                     }
                 }
             }
@@ -816,6 +822,7 @@ namespace AICompanion.Services
             if (mouse.leftButton.wasReleasedThisFrame)
             {
                 isDragging = false;
+                verticalVelocity = 0f;
             }
         }
 
@@ -851,21 +858,10 @@ namespace AICompanion.Services
                 hipsBone.localPosition = hipsInitialPos + new Vector3(0f, breathValue * 0.003f, 0f);
             }
 
-            // 2. Dynamic blanket alignment (picnic blanket is at Y = 0.01f)
-            if (!isDragging)
-            {
-                Bounds bounds = GetAvatarBounds();
-                float targetMinY = 0.01f;
-                float currentMinY = bounds.min.y;
-                float diff = targetMinY - currentMinY;
-
-                // Use a stable 0.025f (2.5cm) threshold to avoid breathing/LookAt-driven high-frequency jitter.
-                // Significant adjustments (like pose changes) will still align instantly.
-                if (Mathf.Abs(diff) > 0.025f)
-                {
-                    currentAvatarGo.transform.position += new Vector3(0f, diff, 0f);
-                }
-            }
+            // 2. Let the animated avatar settle naturally onto the blanket.
+            // A Rigidbody would fight VRMA root motion and manual dragging, so
+            // gravity is applied to the avatar root using its rendered bounds.
+            ApplyBlanketGravity();
 
             if (currentPoseIndex < 0 ||
                 currentPoseIndex >= loadedOptionalPoses.Count)
@@ -903,6 +899,39 @@ namespace AICompanion.Services
 
             ApplyExpressiveLookAndMotion();
             ProcessVrmRuntime();
+        }
+
+        private void ApplyBlanketGravity()
+        {
+            if (isDragging || currentAvatarGo == null)
+            {
+                return;
+            }
+
+            Bounds bounds = GetAvatarBounds();
+            float heightAboveBlanket = bounds.min.y - BlanketSurfaceY;
+
+            if (heightAboveBlanket > GroundSnapDistance)
+            {
+                verticalVelocity += AvatarGravity * Time.deltaTime;
+                float fallDistance = verticalVelocity * Time.deltaTime;
+
+                if (-fallDistance >= heightAboveBlanket)
+                {
+                    fallDistance = -heightAboveBlanket;
+                    verticalVelocity = 0f;
+                }
+
+                currentAvatarGo.transform.position +=
+                    Vector3.up * fallDistance;
+                return;
+            }
+
+            // Correct pose changes that place feet or clothing below the
+            // blanket, and remove tiny gaps without visible jitter.
+            currentAvatarGo.transform.position +=
+                Vector3.up * -heightAboveBlanket;
+            verticalVelocity = 0f;
         }
 
         private void ProcessVrmRuntime()
@@ -1404,11 +1433,13 @@ namespace AICompanion.Services
                 }
                 else
                 {
-                    // Load default Feet Focus pose on load
+                    // Start new picnic sessions in a relaxed seated pose.
                     int defaultPoseIdx = -1;
                     for (int i = 0; i < loadedOptionalPoses.Count; i++)
                     {
-                        if (loadedOptionalPoses[i].name.Equals("Feet Focus", StringComparison.OrdinalIgnoreCase))
+                        if (loadedOptionalPoses[i].name.Equals(
+                            "Optional Pose C",
+                            StringComparison.OrdinalIgnoreCase))
                         {
                             defaultPoseIdx = i;
                             break;
