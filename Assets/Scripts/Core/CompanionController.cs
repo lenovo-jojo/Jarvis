@@ -78,6 +78,8 @@ namespace AICompanion.Core
             companionUI.OnScreenToggleChanged += HandleScreenToggle;
             companionUI.OnAnimationToggleChanged += HandleAnimationToggle;
             companionUI.OnMicToggleChanged += HandleMicToggle;
+            companionUI.OnExploreModeToggleChanged +=
+                HandleExploreModeToggle;
             companionUI.OnCyclePoseRequested += HandleCyclePose;
             companionUI.OnPoseSelected += HandlePoseSelected;
             companionUI.OnZoomInSliderChanged += HandleZoomInSliderChanged;
@@ -539,6 +541,17 @@ namespace AICompanion.Core
             }
         }
 
+        private void HandleExploreModeToggle(bool enabled)
+        {
+            if (companionCamera == null && Camera.main != null)
+            {
+                companionCamera =
+                    Camera.main.GetComponent<CompanionCamera>();
+            }
+
+            companionCamera?.SetExploreMode(enabled);
+        }
+
         private int GetPoseIndexByName(string poseName)
         {
             for (int i = 0; i < availablePoses.Count; i++)
@@ -735,6 +748,8 @@ namespace AICompanion.Core
                 companionUI.OnScreenToggleChanged -= HandleScreenToggle;
                 companionUI.OnAnimationToggleChanged -= HandleAnimationToggle;
                 companionUI.OnMicToggleChanged -= HandleMicToggle;
+                companionUI.OnExploreModeToggleChanged -=
+                    HandleExploreModeToggle;
                 companionUI.OnCyclePoseRequested -= HandleCyclePose;
                 companionUI.OnPoseSelected -= HandlePoseSelected;
                 companionUI.OnZoomInSliderChanged -= HandleZoomInSliderChanged;

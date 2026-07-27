@@ -36,6 +36,7 @@ namespace AICompanion.UI
         [SerializeField] private Toggle screenToggle;
         [SerializeField] private Toggle animationToggle;
         [SerializeField] private Toggle micToggle;
+        [SerializeField] private Toggle exploreModeToggle;
         [SerializeField] private Button cyclePoseButton;
         [SerializeField] private TMPro.TMP_Dropdown poseDropdown;
         [SerializeField] private RawImage webcamPreviewImage;
@@ -54,6 +55,7 @@ namespace AICompanion.UI
         public event Action<bool> OnScreenToggleChanged;
         public event Action<bool> OnAnimationToggleChanged;
         public event Action<bool> OnMicToggleChanged;
+        public event Action<bool> OnExploreModeToggleChanged;
         public event Action OnCyclePoseRequested;
         public event Action OnSaveFrameRequested;
         public event Action OnLoadFrameRequested;
@@ -196,6 +198,11 @@ namespace AICompanion.UI
             {
                 micToggle.onValueChanged.AddListener((val) => OnMicToggleChanged?.Invoke(val));
             }
+            if (exploreModeToggle != null)
+            {
+                exploreModeToggle.onValueChanged.AddListener(
+                    (val) => OnExploreModeToggleChanged?.Invoke(val));
+            }
             if (zoomInSlider != null)
             {
                 zoomInSlider.onValueChanged.AddListener((val) => OnZoomInSliderChanged?.Invoke(val));
@@ -277,6 +284,25 @@ namespace AICompanion.UI
                     micToggle = micObject.GetComponent<Toggle>();
                     micToggle.SetIsOnWithoutNotify(false);
                     SetToggleText(micToggle, "microphone");
+                }
+            }
+
+            if (exploreModeToggle == null)
+            {
+                Toggle sourceToggle =
+                    micToggle != null
+                        ? micToggle
+                        : webcamToggle;
+                if (sourceToggle != null)
+                {
+                    GameObject exploreObject = Instantiate(
+                        sourceToggle.gameObject,
+                        sourceToggle.transform.parent);
+                    exploreObject.name = "ExploreModeToggle";
+                    exploreModeToggle =
+                        exploreObject.GetComponent<Toggle>();
+                    exploreModeToggle.SetIsOnWithoutNotify(false);
+                    SetToggleText(exploreModeToggle, "explore");
                 }
             }
 
@@ -561,6 +587,10 @@ namespace AICompanion.UI
             if (micToggle != null)
             {
                 MoveToQuickActions(micToggle, quickActions);
+            }
+            if (exploreModeToggle != null)
+            {
+                MoveToQuickActions(exploreModeToggle, quickActions);
             }
 
             chatMenuToggleButton = CreateMenuToggleButton(
@@ -1564,10 +1594,12 @@ namespace AICompanion.UI
             SetToggleText(webcamToggle, "webcam");
             SetToggleText(screenToggle, "screen");
             SetToggleText(micToggle, "microphone");
+            SetToggleText(exploreModeToggle, "explore");
             StyleToggle(webcamToggle);
             StyleToggle(screenToggle);
             StyleToggle(animationToggle);
             StyleToggle(micToggle);
+            StyleToggle(exploreModeToggle);
 
             if (settingsPanel != null)
             {

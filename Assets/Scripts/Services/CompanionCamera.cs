@@ -23,6 +23,10 @@ namespace AICompanion.Services
         [SerializeField] private float groundClearance = 0.25f;
         [SerializeField] private float minCameraDistance = 0.45f;
         [SerializeField] private float maxCameraDistance = 12f;
+        [SerializeField] private float keyboardOrbitSpeed = 70f;
+        [SerializeField] private float followVerticalSpeed = 2f;
+        [SerializeField] private float minFollowHeightOffset = -1.25f;
+        [SerializeField] private float maxFollowHeightOffset = 3f;
 
         [Header("Scene Navigation")]
         [SerializeField] private float moveSpeed = 2.5f;
@@ -31,6 +35,12 @@ namespace AICompanion.Services
         [SerializeField] private float verticalDragSensitivity = 0.005f;
         [SerializeField] private float minVerticalFrameOffset = -1.5f;
         [SerializeField] private float maxVerticalFrameOffset = 2.5f;
+
+        [Header("Character Tracking")]
+        [SerializeField] private Transform selectedTarget;
+        [SerializeField] private bool exploreMode;
+        [SerializeField] private float fullBodyFramingScale = 0.88f;
+        [SerializeField] private float fullBodyVerticalBias = -0.08f;
 
         private Camera cam;
         private Vector3 currentTargetCamPos;
@@ -52,10 +62,12 @@ namespace AICompanion.Services
         private float stableFullBodyFocusHeight = 1.8f;
         private Vector3 stableLocalFaceFocusPos;
         private float stableFaceFocusHeight = 0.6f;
+        private Vector3 stableLocalFaceForward = Vector3.forward;
         private bool isFaceFocusMode;
         private bool hasManualFocus;
         private Vector3 manualFocusPosition;
         private bool snapCameraThisFrame;
+        private float followHeightOffset;
 
         private void Awake()
         {
@@ -66,6 +78,7 @@ namespace AICompanion.Services
         public float OrbitPitch => orbitPitch;
         public float ZoomOffset => zoomOffset;
         public Vector3 SceneOffset => sceneOffset;
+        public bool ExploreMode => exploreMode;
 
         private void Start()
         {
@@ -120,12 +133,9 @@ namespace AICompanion.Services
 
         private void LateUpdate()
         {
-            // 1. Locate active custom VRM or fallback procedural companion
-            GameObject targetGo = GameObject.Find("CompanionAvatarVRM");
-            if (targetGo == null)
-            {
-                targetGo = GameObject.Find("CompanionAvatarProcedural");
-            }
+            // 1. Follow the explicitly selected avatar, or the nearest active
+            // companion until a character selector supplies one.
+            GameObject targetGo = ResolveTrackedTarget();
 
             if (targetGo == null) return;
 
@@ -243,6 +253,7 @@ namespace AICompanion.Services
                 orbitPitch = 10f;
                 zoomOffset = 0f;
                 sceneOffset = Vector3.zero;
+                followHeightOffset = 0f;
                 hasManualFocus = false;
                 isInteracting = true;
             }
@@ -256,7 +267,11 @@ namespace AICompanion.Services
                 targetFocusPos = targetGo.transform.TransformPoint(
                     stableLocalFullBodyFocusPos);
                 targetHeight = stableFullBodyFocusHeight;
-                ResetToFraming(targetFocusPos, targetHeight, 10f);
+                ResetToFraming(
+                    targetFocusPos,
+                    targetHeight,
+                    8f,
+                    GetFaceForwardYaw(targetGo));
                 focusPos = targetFocusPos;
                 isInteracting = true;
             }
@@ -270,7 +285,11 @@ namespace AICompanion.Services
                 targetFocusPos = targetGo.transform.TransformPoint(
                     stableLocalFaceFocusPos);
                 targetHeight = stableFaceFocusHeight;
-                ResetToFraming(targetFocusPos, targetHeight, 0f);
+                ResetToFraming(
+                    targetFocusPos,
+                    targetHeight,
+                    0f,
+                    GetFaceForwardYaw(targetGo));
                 focusPos = targetFocusPos;
                 isInteracting = true;
             }
@@ -298,7 +317,8 @@ namespace AICompanion.Services
             Vector3 idealCamPos = ClampAboveGround(
                 focusPos +
                 targetOffsetDir * finalDistance +
-                positionOffset);
+                positionOffset +
+                Vector3.up * followHeightOffset);
 
             if (!isInitialized || snapCameraThisFrame)
             {
@@ -341,12 +361,14 @@ namespace AICompanion.Services
         private void ResetToFraming(
             Vector3 targetFocusPosition,
             float targetFocusHeight,
-            float targetPitch)
+            float targetPitch,
+            float? targetYaw = null)
         {
-            orbitYaw = 180f;
+            orbitYaw = targetYaw ?? 180f;
             orbitPitch = targetPitch;
             zoomOffset = 0f;
             sceneOffset = Vector3.zero;
+            followHeightOffset = 0f;
             hasManualFocus = false;
             sliderZoomInValue = 0f;
             sliderZoomOutValue = 0f;
@@ -411,10 +433,15 @@ namespace AICompanion.Services
                 bounds = new Bounds(targetGo.transform.position + Vector3.up * 0.9f, new Vector3(1f, 1.8f, 1f));
             }
 
-            Vector3 fullBodyFocusPosition = bounds.center;
-            float fullBodyFocusHeight = Mathf.Max(bounds.size.y, 0.6f);
+            Vector3 fullBodyFocusPosition =
+                bounds.center +
+                Vector3.up * (bounds.size.y * fullBodyVerticalBias);
+            float fullBodyFocusHeight = Mathf.Max(
+                bounds.size.y * fullBodyFramingScale,
+                0.6f);
             Vector3 faceFocusPosition =
                 bounds.center + Vector3.up * (bounds.extents.y * 0.55f);
+            Vector3 faceForward = targetGo.transform.forward;
             Animator animator = targetGo.GetComponent<Animator>();
             if (animator != null && animator.isHuman)
             {
@@ -422,6 +449,7 @@ namespace AICompanion.Services
                 if (headBone != null)
                 {
                     faceFocusPosition = headBone.position;
+                    faceForward = headBone.forward;
                 }
             }
 
@@ -434,6 +462,9 @@ namespace AICompanion.Services
                 targetGo.transform.InverseTransformPoint(
                     faceFocusPosition);
             stableFaceFocusHeight = 0.6f;
+            stableLocalFaceForward =
+                targetGo.transform.InverseTransformDirection(
+                    faceForward.normalized);
 
             Vector3 initialFocusPosition = isFaceFocusMode
                 ? faceFocusPosition
@@ -482,6 +513,25 @@ namespace AICompanion.Services
                 return;
             }
 
+            if (!exploreMode)
+            {
+                float orbitInput = 0f;
+                if (Keyboard.current.aKey.isPressed) orbitInput -= 1f;
+                if (Keyboard.current.dKey.isPressed) orbitInput += 1f;
+                orbitYaw +=
+                    orbitInput * keyboardOrbitSpeed * Time.deltaTime;
+
+                float verticalInput = 0f;
+                if (Keyboard.current.qKey.isPressed) verticalInput -= 1f;
+                if (Keyboard.current.eKey.isPressed) verticalInput += 1f;
+                followHeightOffset = Mathf.Clamp(
+                    followHeightOffset +
+                    verticalInput * followVerticalSpeed * Time.deltaTime,
+                    minFollowHeightOffset,
+                    maxFollowHeightOffset);
+                return;
+            }
+
             Vector3 moveInput = Vector3.zero;
             if (Keyboard.current.wKey.isPressed) moveInput += Vector3.forward;
             if (Keyboard.current.sKey.isPressed) moveInput += Vector3.back;
@@ -518,6 +568,94 @@ namespace AICompanion.Services
                 sceneOffset =
                     manualFocusPosition - smoothedFocusPos;
             }
+        }
+
+        public void SetExploreMode(bool enabled)
+        {
+            exploreMode = enabled;
+            if (!exploreMode)
+            {
+                hasManualFocus = false;
+                sceneOffset = Vector3.zero;
+                focusVelocity = Vector3.zero;
+            }
+        }
+
+        public void SetTrackedTarget(Transform target)
+        {
+            selectedTarget = target;
+            framedTarget = null;
+            hasManualFocus = false;
+        }
+
+        public void ClearTrackedTarget()
+        {
+            SetTrackedTarget(null);
+        }
+
+        private GameObject ResolveTrackedTarget()
+        {
+            if (selectedTarget != null &&
+                selectedTarget.gameObject.activeInHierarchy)
+            {
+                return selectedTarget.gameObject;
+            }
+
+            GameObject namedTarget = GameObject.Find("CompanionAvatarVRM");
+            GameObject nearestTarget = namedTarget;
+            float nearestDistance = namedTarget != null
+                ? (namedTarget.transform.position - transform.position).sqrMagnitude
+                : float.PositiveInfinity;
+
+            Animator[] animators =
+                UnityEngine.Object.FindObjectsByType<Animator>(
+                    FindObjectsInactive.Exclude,
+                    FindObjectsSortMode.None);
+            foreach (Animator animator in animators)
+            {
+                if (animator == null || !animator.isHuman)
+                {
+                    continue;
+                }
+
+                GameObject candidate = animator.gameObject;
+                if (candidate.name.IndexOf(
+                        "CompanionAvatar",
+                        System.StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    continue;
+                }
+
+                float distance =
+                    (candidate.transform.position - transform.position)
+                    .sqrMagnitude;
+                if (distance < nearestDistance)
+                {
+                    nearestTarget = candidate;
+                    nearestDistance = distance;
+                }
+            }
+
+            return nearestTarget != null
+                ? nearestTarget
+                : GameObject.Find("CompanionAvatarProcedural");
+        }
+
+        private float GetFaceForwardYaw(GameObject targetGo)
+        {
+            Vector3 faceForward =
+                targetGo.transform.TransformDirection(
+                    stableLocalFaceForward);
+            faceForward.y = 0f;
+            if (faceForward.sqrMagnitude < 0.001f)
+            {
+                return orbitYaw;
+            }
+
+            faceForward.Normalize();
+            return Mathf.Atan2(
+                faceForward.x,
+                faceForward.z) * Mathf.Rad2Deg;
         }
 
         private static bool IsTypingIntoTextField()
