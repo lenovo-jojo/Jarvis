@@ -48,8 +48,13 @@ namespace AICompanion.Services
         private Vector3 smoothedFocusPos;
         private float smoothedFocusHeight = 1.8f;
         private GameObject framedTarget;
-        private Vector3 stableLocalFocusPos;
-        private float stableFocusHeight = 1.8f;
+        private Vector3 stableLocalFullBodyFocusPos;
+        private float stableFullBodyFocusHeight = 1.8f;
+        private Vector3 stableLocalFaceFocusPos;
+        private float stableFaceFocusHeight = 0.6f;
+        private bool isFaceFocusMode;
+        private bool hasManualFocus;
+        private Vector3 manualFocusPosition;
         private bool snapCameraThisFrame;
 
         private void Awake()
@@ -131,8 +136,14 @@ namespace AICompanion.Services
                 CacheStableFraming(targetGo);
             }
 
-            Vector3 targetFocusPos = targetGo.transform.TransformPoint(stableLocalFocusPos);
-            float targetHeight = stableFocusHeight;
+            Vector3 activeLocalFocusPos = isFaceFocusMode
+                ? stableLocalFaceFocusPos
+                : stableLocalFullBodyFocusPos;
+            Vector3 targetFocusPos =
+                targetGo.transform.TransformPoint(activeLocalFocusPos);
+            float targetHeight = isFaceFocusMode
+                ? stableFaceFocusHeight
+                : stableFullBodyFocusHeight;
 
             if (!isInitialized)
             {
@@ -145,13 +156,10 @@ namespace AICompanion.Services
                 smoothedFocusHeight = Mathf.Lerp(smoothedFocusHeight, targetHeight, Time.deltaTime * (1f / Mathf.Max(0.01f, focusSmoothTime)));
             }
 
-            ProcessSceneNavigation();
-            Vector3 focusPos = smoothedFocusPos + sceneOffset;
-
-            // Calculate optimal base framing distance to fit the focus height
-            float fov = cam != null ? cam.fieldOfView : 60f;
-            float radFov = fov * Mathf.Deg2Rad;
-            float baseDistance = (smoothedFocusHeight / 2.0f) * padding / Mathf.Tan(radFov / 2.0f);
+            ProcessSceneNavigation(smoothedFocusPos + sceneOffset);
+            Vector3 focusPos = hasManualFocus
+                ? manualFocusPosition
+                : smoothedFocusPos + sceneOffset;
 
             // 4. Input processing using New Input System Mouse class
             bool isInteracting = false;
@@ -196,12 +204,22 @@ namespace AICompanion.Services
                     }
                     else
                     {
-                        sceneOffset.y = Mathf.Clamp(
-                            sceneOffset.y +
-                                mouseDelta.y *
-                                verticalDragSensitivity,
-                            minVerticalFrameOffset,
-                            maxVerticalFrameOffset);
+                        float verticalDelta =
+                            mouseDelta.y * verticalDragSensitivity;
+                        if (hasManualFocus)
+                        {
+                            manualFocusPosition.y += verticalDelta;
+                            sceneOffset =
+                                manualFocusPosition -
+                                smoothedFocusPos;
+                        }
+                        else
+                        {
+                            sceneOffset.y = Mathf.Clamp(
+                                sceneOffset.y + verticalDelta,
+                                minVerticalFrameOffset,
+                                maxVerticalFrameOffset);
+                        }
                     }
 
                     isInteracting = true;
@@ -224,6 +242,22 @@ namespace AICompanion.Services
                 orbitYaw = 180f;
                 orbitPitch = 10f;
                 zoomOffset = 0f;
+                sceneOffset = Vector3.zero;
+                hasManualFocus = false;
+                isInteracting = true;
+            }
+
+            if (!IsTypingIntoTextField() &&
+                Keyboard.current != null &&
+                Keyboard.current.rKey.wasPressedThisFrame)
+            {
+                // Full-body reset.
+                isFaceFocusMode = false;
+                targetFocusPos = targetGo.transform.TransformPoint(
+                    stableLocalFullBodyFocusPos);
+                targetHeight = stableFullBodyFocusHeight;
+                ResetToFraming(targetFocusPos, targetHeight, 10f);
+                focusPos = targetFocusPos;
                 isInteracting = true;
             }
 
@@ -231,21 +265,24 @@ namespace AICompanion.Services
                 Keyboard.current != null &&
                 Keyboard.current.fKey.wasPressedThisFrame)
             {
-                // Instantly restore a clean, front-facing portrait shot.
-                orbitYaw = 180f;
-                orbitPitch = 0f;
-                zoomOffset = 0f;
-                sceneOffset = Vector3.zero;
-                sliderZoomInValue = 0f;
-                sliderZoomOutValue = 0f;
-                hasSliderInput = false;
-                focusVelocity = Vector3.zero;
-                smoothedFocusPos = targetFocusPos;
-                smoothedFocusHeight = targetHeight;
+                // Face reset.
+                isFaceFocusMode = true;
+                targetFocusPos = targetGo.transform.TransformPoint(
+                    stableLocalFaceFocusPos);
+                targetHeight = stableFaceFocusHeight;
+                ResetToFraming(targetFocusPos, targetHeight, 0f);
                 focusPos = targetFocusPos;
-                snapCameraThisFrame = true;
                 isInteracting = true;
             }
+
+            // Calculate optimal base framing distance after shortcut input may
+            // have switched between face and full-body framing.
+            float fov = cam != null ? cam.fieldOfView : 60f;
+            float radFov = fov * Mathf.Deg2Rad;
+            float baseDistance =
+                (smoothedFocusHeight / 2.0f) *
+                padding /
+                Mathf.Tan(radFov / 2.0f);
 
             // Calculate target distance after zoom
             ApplySliderZoom();
@@ -299,6 +336,25 @@ namespace AICompanion.Services
         {
             position.y = Mathf.Max(position.y, groundClearance);
             return position;
+        }
+
+        private void ResetToFraming(
+            Vector3 targetFocusPosition,
+            float targetFocusHeight,
+            float targetPitch)
+        {
+            orbitYaw = 180f;
+            orbitPitch = targetPitch;
+            zoomOffset = 0f;
+            sceneOffset = Vector3.zero;
+            hasManualFocus = false;
+            sliderZoomInValue = 0f;
+            sliderZoomOutValue = 0f;
+            hasSliderInput = false;
+            focusVelocity = Vector3.zero;
+            smoothedFocusPos = targetFocusPosition;
+            smoothedFocusHeight = targetFocusHeight;
+            snapCameraThisFrame = true;
         }
 
         private Vector3[] GetBoundsCorners(Bounds b)
@@ -355,24 +411,37 @@ namespace AICompanion.Services
                 bounds = new Bounds(targetGo.transform.position + Vector3.up * 0.9f, new Vector3(1f, 1.8f, 1f));
             }
 
-            Vector3 focusPosition = bounds.center;
-            float focusHeight = bounds.size.y;
+            Vector3 fullBodyFocusPosition = bounds.center;
+            float fullBodyFocusHeight = Mathf.Max(bounds.size.y, 0.6f);
+            Vector3 faceFocusPosition =
+                bounds.center + Vector3.up * (bounds.extents.y * 0.55f);
             Animator animator = targetGo.GetComponent<Animator>();
             if (animator != null && animator.isHuman)
             {
                 Transform headBone = animator.GetBoneTransform(HumanBodyBones.Head);
                 if (headBone != null)
                 {
-                    focusPosition = headBone.position;
-                    focusHeight = 0.6f;
+                    faceFocusPosition = headBone.position;
                 }
             }
 
             framedTarget = targetGo;
-            stableLocalFocusPos = targetGo.transform.InverseTransformPoint(focusPosition);
-            stableFocusHeight = focusHeight;
-            smoothedFocusPos = focusPosition;
-            smoothedFocusHeight = focusHeight;
+            stableLocalFullBodyFocusPos =
+                targetGo.transform.InverseTransformPoint(
+                    fullBodyFocusPosition);
+            stableFullBodyFocusHeight = fullBodyFocusHeight;
+            stableLocalFaceFocusPos =
+                targetGo.transform.InverseTransformPoint(
+                    faceFocusPosition);
+            stableFaceFocusHeight = 0.6f;
+
+            Vector3 initialFocusPosition = isFaceFocusMode
+                ? faceFocusPosition
+                : fullBodyFocusPosition;
+            smoothedFocusPos = initialFocusPosition;
+            smoothedFocusHeight = isFaceFocusMode
+                ? stableFaceFocusHeight
+                : stableFullBodyFocusHeight;
             focusVelocity = Vector3.zero;
         }
 
@@ -405,7 +474,8 @@ namespace AICompanion.Services
             zoomOffset = Mathf.Clamp(sliderDrivenZoom, minZoom, maxZoom);
         }
 
-        private void ProcessSceneNavigation()
+        private void ProcessSceneNavigation(
+            Vector3 currentAutomaticFocusPosition)
         {
             if (Keyboard.current == null || cam == null || IsTypingIntoTextField())
             {
@@ -422,21 +492,31 @@ namespace AICompanion.Services
 
             if (moveInput.sqrMagnitude > 0f)
             {
+                if (!hasManualFocus)
+                {
+                    manualFocusPosition =
+                        currentAutomaticFocusPosition;
+                    hasManualFocus = true;
+                }
+
                 float speed = moveSpeed * (Keyboard.current.leftShiftKey.isPressed ? sprintMultiplier : 1f);
                 Vector3 worldMove =
                     (cam.transform.forward * moveInput.z) +
                     (cam.transform.right * moveInput.x) +
                     (Vector3.up * moveInput.y);
-                sceneOffset += worldMove.normalized * speed * Time.deltaTime;
-                sceneOffset.y = Mathf.Clamp(
-                    sceneOffset.y,
+                manualFocusPosition +=
+                    worldMove.normalized * speed * Time.deltaTime;
+
+                float relativeHeight =
+                    manualFocusPosition.y - smoothedFocusPos.y;
+                manualFocusPosition.y =
+                    smoothedFocusPos.y + Mathf.Clamp(
+                    relativeHeight,
                     minVerticalFrameOffset,
                     maxVerticalFrameOffset);
-            }
 
-            if (Keyboard.current.rKey.wasPressedThisFrame)
-            {
-                sceneOffset = Vector3.zero;
+                sceneOffset =
+                    manualFocusPosition - smoothedFocusPos;
             }
         }
 
