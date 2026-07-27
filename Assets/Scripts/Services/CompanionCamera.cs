@@ -20,11 +20,15 @@ namespace AICompanion.Services
         [SerializeField] private float maxZoom = 5.0f;
         [SerializeField] private float minPitch = -45f;
         [SerializeField] private float maxPitch = 45f;
+        [SerializeField] private float groundClearance = 0.25f;
 
         [Header("Scene Navigation")]
         [SerializeField] private float moveSpeed = 2.5f;
         [SerializeField] private float sprintMultiplier = 2.5f;
         [SerializeField] private float focusSmoothTime = 0.12f;
+        [SerializeField] private float verticalDragSensitivity = 0.005f;
+        [SerializeField] private float minVerticalFrameOffset = -1.5f;
+        [SerializeField] private float maxVerticalFrameOffset = 2.5f;
 
         private Camera cam;
         private Vector3 currentTargetCamPos;
@@ -82,14 +86,17 @@ namespace AICompanion.Services
                 maxZoom);
             sceneOffset = new Vector3(
                 config.camSceneOffsetX,
-                config.camSceneOffsetY,
+                Mathf.Clamp(
+                    config.camSceneOffsetY,
+                    minVerticalFrameOffset,
+                    maxVerticalFrameOffset),
                 config.camSceneOffsetZ);
 
             transform.SetPositionAndRotation(
-                new Vector3(
+                ClampAboveGround(new Vector3(
                     config.camPosX,
                     config.camPosY,
-                    config.camPosZ),
+                    config.camPosZ)),
                 new Quaternion(
                     config.camRotX,
                     config.camRotY,
@@ -164,14 +171,36 @@ namespace AICompanion.Services
                     isOrbitBlockedByAvatarDrag = false;
                 }
 
-                bool orbitDragPressed = rightPressed || (leftPressed && !isOrbitBlockedByAvatarDrag);
+                bool backgroundLeftDrag =
+                    leftPressed && !isOrbitBlockedByAvatarDrag;
+                bool orbitDragPressed =
+                    rightPressed || backgroundLeftDrag;
 
-                // Handle Orbit Rotation with drag (right mouse always, left mouse unless dragging avatar)
+                // Right-drag provides full orbit control. Left-drag keeps
+                // horizontal orbit, while vertical movement shifts the
+                // character framing like a third-person game camera.
                 if (!pointerOverUi && orbitDragPressed && mouseDelta.sqrMagnitude > 0.01f)
                 {
                     orbitYaw += mouseDelta.x * rotateSensitivity;
-                    orbitPitch -= mouseDelta.y * rotateSensitivity;
-                    orbitPitch = Mathf.Clamp(orbitPitch, minPitch, maxPitch);
+
+                    if (rightPressed)
+                    {
+                        orbitPitch -= mouseDelta.y * rotateSensitivity;
+                        orbitPitch = Mathf.Clamp(
+                            orbitPitch,
+                            minPitch,
+                            maxPitch);
+                    }
+                    else
+                    {
+                        sceneOffset.y = Mathf.Clamp(
+                            sceneOffset.y +
+                                mouseDelta.y *
+                                verticalDragSensitivity,
+                            minVerticalFrameOffset,
+                            maxVerticalFrameOffset);
+                    }
+
                     isInteracting = true;
                 }
 
@@ -203,7 +232,10 @@ namespace AICompanion.Services
             // Convert Yaw/Pitch angles to look direction pointing back from center
             Quaternion orbitRotation = Quaternion.Euler(orbitPitch, orbitYaw, 0f);
             Vector3 targetOffsetDir = orbitRotation * Vector3.forward;
-            Vector3 idealCamPos = focusPos + targetOffsetDir * finalDistance + positionOffset;
+            Vector3 idealCamPos = ClampAboveGround(
+                focusPos +
+                targetOffsetDir * finalDistance +
+                positionOffset);
 
             if (!isInitialized)
             {
@@ -230,6 +262,16 @@ namespace AICompanion.Services
                 Quaternion targetCamRot = Quaternion.LookRotation(focusPos - transform.position);
                 transform.rotation = Quaternion.Slerp(transform.rotation, targetCamRot, Time.deltaTime * smoothSpeed);
             }
+
+            // Protect against stale save data or any external movement that
+            // attempts to place the camera below the scene floor.
+            transform.position = ClampAboveGround(transform.position);
+        }
+
+        private Vector3 ClampAboveGround(Vector3 position)
+        {
+            position.y = Mathf.Max(position.y, groundClearance);
+            return position;
         }
 
         private Vector3[] GetBoundsCorners(Bounds b)
@@ -352,6 +394,10 @@ namespace AICompanion.Services
                     (cam.transform.right * moveInput.x) +
                     (Vector3.up * moveInput.y);
                 sceneOffset += worldMove.normalized * speed * Time.deltaTime;
+                sceneOffset.y = Mathf.Clamp(
+                    sceneOffset.y,
+                    minVerticalFrameOffset,
+                    maxVerticalFrameOffset);
             }
 
             if (Keyboard.current.rKey.wasPressedThisFrame)
