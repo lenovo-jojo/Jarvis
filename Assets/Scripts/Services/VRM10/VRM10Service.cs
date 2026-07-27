@@ -914,11 +914,20 @@ namespace AICompanion.Services
             {
                 float targetHipY = BlanketSurfaceY + SeatedHipHeight;
                 float hipCorrection = targetHipY - hipsBone.position.y;
+                Bounds seatedBounds = GetAvatarBounds();
+                float penetrationCorrection =
+                    BlanketSurfaceY - seatedBounds.min.y;
 
-                if (Mathf.Abs(hipCorrection) > HipSnapTolerance)
+                // Seat the hips as low as the pose allows, but never lower
+                // the avatar far enough for feet, clothing, or hair to pass
+                // through the blanket.
+                float safeCorrection =
+                    Mathf.Max(hipCorrection, penetrationCorrection);
+
+                if (Mathf.Abs(safeCorrection) > HipSnapTolerance)
                 {
                     currentAvatarGo.transform.position +=
-                        Vector3.up * hipCorrection;
+                        Vector3.up * safeCorrection;
                 }
 
                 verticalVelocity = 0f;
