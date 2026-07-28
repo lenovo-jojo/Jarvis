@@ -691,11 +691,15 @@ namespace AICompanion.Services
 
             HandleDragging();
 
-            // Keep only the procedural companion oriented to the camera.
-            // Custom VRMs already use runtime LookAt and extra root rotation causes jitter.
-            if (!isUsingCustomVrm && Camera.main != null)
+            // Custom VRMs use runtime LookAt below. Keep the procedural
+            // fallback aligned with the same active gaze target.
+            Transform activeLookTarget =
+                ResolveCompanionLookTarget();
+            if (!isUsingCustomVrm &&
+                activeLookTarget != null)
             {
-                Vector3 lookPos = Camera.main.transform.position;
+                Vector3 lookPos =
+                    activeLookTarget.position;
                 lookPos.y = currentAvatarGo.transform.position.y;
                 Vector3 direction = lookPos - currentAvatarGo.transform.position;
                 if (direction.sqrMagnitude > 0.0001f)
@@ -713,12 +717,15 @@ namespace AICompanion.Services
             {
                 if (vrm10Instance != null && vrm10Instance.Runtime != null)
                 {
-                    // 1. Look at camera (with eyes & head)
-                    if (Camera.main != null)
+                    // 1. Look at the conversation partner in Character Mode,
+                    // or at the camera in Explore Mode.
+                    Transform lookTarget =
+                        ResolveCompanionLookTarget();
+                    if (lookTarget != null)
                     {
                         vrm10Instance.Runtime.LookAt.LookAtInput = new LookAtInput
                         {
-                            WorldPosition = Camera.main.transform.position
+                            WorldPosition = lookTarget.position
                         };
                     }
 
@@ -758,9 +765,12 @@ namespace AICompanion.Services
                 currentAvatarGo.transform.localPosition = startPosition + new Vector3(0, hover, 0);
 
                 // Head lookat
-                if (headTransform != null && Camera.main != null)
+                if (headTransform != null &&
+                    activeLookTarget != null)
                 {
-                    Vector3 direction = Camera.main.transform.position - headTransform.position;
+                    Vector3 direction =
+                        activeLookTarget.position -
+                        headTransform.position;
                     Quaternion lookRotation = Quaternion.LookRotation(direction);
                     headTransform.rotation = Quaternion.Slerp(headTransform.rotation, lookRotation, Time.deltaTime * 2.0f);
                 }
@@ -1063,11 +1073,13 @@ namespace AICompanion.Services
         {
             if (vrm10Instance != null && vrm10Instance.Runtime != null)
             {
-                if (Camera.main != null)
+                Transform lookTarget =
+                    ResolveCompanionLookTarget();
+                if (lookTarget != null)
                 {
                     vrm10Instance.LookAtTargetType =
                         VRM10ObjectLookAt.LookAtTargetTypes.SpecifiedTransform;
-                    vrm10Instance.LookAtTarget = Camera.main.transform;
+                    vrm10Instance.LookAtTarget = lookTarget;
                 }
 
                 try
@@ -1101,6 +1113,45 @@ namespace AICompanion.Services
 
                 ApplyFacialOverrides();
             }
+        }
+
+        private Transform ResolveCompanionLookTarget()
+        {
+            if (Camera.main == null)
+            {
+                return null;
+            }
+
+            CompanionCamera companionCamera =
+                Camera.main.GetComponent<CompanionCamera>();
+            if (companionCamera == null ||
+                companionCamera.ExploreMode)
+            {
+                return Camera.main.transform;
+            }
+
+            GameObject player =
+                GameObject.Find("PlayerAvatarVRM");
+            if (player == null)
+            {
+                return Camera.main.transform;
+            }
+
+            Animator playerAnimator =
+                player.GetComponent<Animator>();
+            if (playerAnimator != null &&
+                playerAnimator.isHuman)
+            {
+                Transform head =
+                    playerAnimator.GetBoneTransform(
+                        HumanBodyBones.Head);
+                if (head != null)
+                {
+                    return head;
+                }
+            }
+
+            return player.transform;
         }
 
         private void ApplyCurrentVpdFallback()

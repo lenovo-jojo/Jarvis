@@ -42,6 +42,7 @@ namespace AICompanion.Services
         [SerializeField] private float minPlayerCameraDistance = 1.2f;
         [SerializeField] private float maxPlayerCameraDistance = 7f;
         [SerializeField] private float playerTurnSpeed = 12f;
+        [SerializeField] private float conversationTurnSpeed = 4f;
 
         [Header("Character Tracking")]
         [SerializeField] private Transform selectedTarget;
@@ -212,6 +213,8 @@ namespace AICompanion.Services
                 CacheStableFraming(targetGo);
             }
 
+            UpdateCharacterInteraction(targetGo);
+
             Vector3 activeLocalFocusPos = isFaceFocusMode
                 ? stableLocalFaceFocusPos
                 : stableLocalFullBodyFocusPos;
@@ -366,7 +369,10 @@ namespace AICompanion.Services
             {
                 // Full-body reset.
                 exploreFollowingPlayer = false;
-                SetPlayerVisible(false);
+                if (exploreMode)
+                {
+                    SetPlayerVisible(false);
+                }
                 isFaceFocusMode = false;
                 // The selected pose can be much wider/deeper than the avatar's
                 // load pose. Capture it once on reset so the frame is stable
@@ -390,7 +396,10 @@ namespace AICompanion.Services
             {
                 // Face reset.
                 exploreFollowingPlayer = false;
-                SetPlayerVisible(false);
+                if (exploreMode)
+                {
+                    SetPlayerVisible(false);
+                }
                 isFaceFocusMode = true;
                 targetFocusPos = targetGo.transform.TransformPoint(
                     stableLocalFaceFocusPos);
@@ -859,7 +868,7 @@ namespace AICompanion.Services
             exploreMode = enabled;
             if (!exploreMode)
             {
-                SetPlayerVisible(false);
+                SetPlayerVisible(true);
                 hasManualFocus = false;
                 sceneOffset = Vector3.zero;
                 focusVelocity = Vector3.zero;
@@ -886,7 +895,61 @@ namespace AICompanion.Services
             }
             exploreFollowingPlayer = true;
             CachePlayerCameraPivot();
-            SetPlayerVisible(exploreMode);
+            SetPlayerVisible(true);
+        }
+
+        private void UpdateCharacterInteraction(
+            GameObject targetGo)
+        {
+            if (exploreMode ||
+                playerAvatar == null ||
+                !playerAvatar.gameObject.activeInHierarchy ||
+                targetGo == null)
+            {
+                return;
+            }
+
+            Vector3 playerToCompanion =
+                targetGo.transform.position -
+                playerAvatar.position;
+            playerToCompanion.y = 0f;
+
+            Vector3 companionToPlayer =
+                playerAvatar.position -
+                targetGo.transform.position;
+            companionToPlayer.y = 0f;
+
+            if (playerToCompanion.sqrMagnitude > 0.01f)
+            {
+                Quaternion playerFacing =
+                    Quaternion.LookRotation(
+                        playerToCompanion.normalized,
+                        Vector3.up);
+                playerAvatar.rotation = Quaternion.Slerp(
+                    playerAvatar.rotation,
+                    playerFacing,
+                    Time.deltaTime *
+                    conversationTurnSpeed);
+            }
+
+            if (companionToPlayer.sqrMagnitude > 0.01f)
+            {
+                Quaternion companionFacing =
+                    Quaternion.LookRotation(
+                        companionToPlayer.normalized,
+                        Vector3.up);
+                targetGo.transform.rotation =
+                    Quaternion.Slerp(
+                        targetGo.transform.rotation,
+                        companionFacing,
+                        Time.deltaTime *
+                        conversationTurnSpeed);
+            }
+
+            playerLocomotion?.SetMotion(
+                0f,
+                false,
+                false);
         }
 
         public bool TryGetPlayerTransform(
