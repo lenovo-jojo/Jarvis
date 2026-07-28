@@ -42,7 +42,7 @@ keyboard camera controls are ignored while typing in the chat box.
 - unity `6000.5.4f1`
 - univrm `0.131.2`
 - ollama or another openai-compatible chat endpoint
-- an optional openai api key for the bounded `o3` cloud fallback
+- an optional openai api key for the bounded `gpt-4o-mini` cloud fallback
 - an optional speech-to-text endpoint or local whisper setup
 - an optional elevenlabs key for full text-to-speech
 
@@ -63,11 +63,11 @@ keyboard camera controls are ignored while typing in the chat box.
 | chat model | `llava` |
 | vision model | `qwen3-vl:4b-instruct` |
 | local mode | enabled |
-| cloud fallback | `o3`, three requests per app session |
+| cloud fallback | `gpt-4o-mini`, three requests per app session |
 | local memory | enabled |
 | private web search | `http://127.0.0.1:8080` |
 
-the local endpoints must already be running before jarvis can reach them. when local mode is active and the optional cloud key is present, jarvis tries `o3` only after the local chat request fails. cloud fallback can be disabled in settings. api keys, settings, and scene state are stored in unity's persistent application data directory and should never be committed to the repository.
+the local endpoints must already be running before jarvis can reach them. when local mode is active and the optional cloud key is present, jarvis tries `gpt-4o-mini` only after the local chat request fails. cloud fallback can be disabled in settings. api keys, settings, and scene state are stored in unity's persistent application data directory and should never be committed to the repository.
 
 ## main packages
 

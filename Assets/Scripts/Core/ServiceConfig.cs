@@ -12,10 +12,10 @@ namespace AICompanion.Core
         public string llmModelName = "llava";
         public string visionModelName = "qwen3-vl:4b-instruct";
         public bool cloudFallbackEnabled = true;
-        public string cloudFallbackModelName = "o3";
+        public string cloudFallbackModelName = "gpt-4o-mini";
         public int cloudFallbackMaxRequestsPerSession = 3;
         public int cloudFallbackMaxOutputTokens = 320;
-        public int cloudFallbackMigrationVersion = 1;
+        public int cloudFallbackMigrationVersion = 2;
         public string speechToTextBaseUrl = "";
         public string speechToTextApiKey = "";
         public string speechToTextModelName = "whisper-1";
@@ -127,13 +127,14 @@ namespace AICompanion.Core
                             "qwen3-vl:4b-instruct";
                     }
                     if (config != null &&
-                        config.cloudFallbackMigrationVersion < 1)
+                        config.cloudFallbackMigrationVersion < 2)
                     {
                         config.cloudFallbackEnabled = true;
-                        config.cloudFallbackModelName = "o3";
+                        config.cloudFallbackModelName =
+                            "gpt-4o-mini";
                         config.cloudFallbackMaxRequestsPerSession = 3;
                         config.cloudFallbackMaxOutputTokens = 320;
-                        config.cloudFallbackMigrationVersion = 1;
+                        config.cloudFallbackMigrationVersion = 2;
                         shouldSaveMigration = true;
                     }
                     if (config != null &&

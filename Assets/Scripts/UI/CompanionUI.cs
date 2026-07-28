@@ -31,6 +31,9 @@ namespace AICompanion.UI
         [SerializeField] private TMP_InputField elevenLabsVoiceIdInput;
         [SerializeField] private Toggle localModeToggle;
         private Toggle cloudFallbackToggle;
+        private TMP_InputField cloudFallbackModelInput;
+        private TMP_InputField cloudFallbackLimitInput;
+        private TMP_Text cloudFallbackHintLabel;
 
         [Header("Vision & Context")]
         [SerializeField] private Toggle webcamToggle;
@@ -474,6 +477,7 @@ namespace AICompanion.UI
 
             BuildTopControlStack();
             BuildChatDock();
+            BuildSettingsPanelLayout();
             ApplyInterfaceTheme();
             ApplySafeArea();
         }
@@ -1880,6 +1884,360 @@ namespace AICompanion.UI
             }
         }
 
+        private void BuildSettingsPanelLayout()
+        {
+            if (settingsPanel == null)
+            {
+                return;
+            }
+
+            RectTransform settingsRect =
+                settingsPanel.GetComponent<RectTransform>();
+            settingsRect.anchorMin = new Vector2(0.5f, 0.5f);
+            settingsRect.anchorMax = new Vector2(0.5f, 0.5f);
+            settingsRect.pivot = new Vector2(0.5f, 0.5f);
+            settingsRect.anchoredPosition = Vector2.zero;
+            settingsRect.sizeDelta = new Vector2(900f, 760f);
+
+            HideLegacySettingsLabels();
+
+            if (cloudFallbackModelInput == null)
+            {
+                cloudFallbackModelInput =
+                    CreateSettingsInputClone(
+                        llmModelNameInput,
+                        "CloudFallbackModelInput",
+                        TMP_InputField.ContentType.Standard,
+                        80);
+            }
+            if (cloudFallbackLimitInput == null)
+            {
+                cloudFallbackLimitInput =
+                    CreateSettingsInputClone(
+                        llmModelNameInput,
+                        "CloudFallbackLimitInput",
+                        TMP_InputField.ContentType.IntegerNumber,
+                        2);
+            }
+
+            ConfigureSecretInput(
+                llmApiKeyInput,
+                "paste a new openai api key");
+            ConfigureSecretInput(
+                elevenLabsApiKeyInput,
+                "paste a new elevenlabs api key");
+
+            CreateSettingsCard(
+                "AiSettingsCard",
+                new Vector2(0f, 74f),
+                new Vector2(820f, 330f));
+            CreateSettingsCard(
+                "VoiceSettingsCard",
+                new Vector2(0f, -220f),
+                new Vector2(820f, 180f));
+
+            CreateSettingsLabel(
+                "SettingsHeading",
+                "settings",
+                new Vector2(0f, 348f),
+                new Vector2(760f, 42f),
+                27f,
+                TextAlignmentOptions.Center);
+            CreateSettingsLabel(
+                "LocalAiHeading",
+                "local ai",
+                new Vector2(-342f, 231f),
+                new Vector2(220f, 30f),
+                19f,
+                TextAlignmentOptions.Left);
+            CreateSettingsLabel(
+                "LocalUrlLabel",
+                "ollama server",
+                new Vector2(-335f, 188f),
+                new Vector2(220f, 30f));
+            CreateSettingsLabel(
+                "LocalModelLabel",
+                "local model",
+                new Vector2(-335f, 134f),
+                new Vector2(220f, 30f));
+            CreateSettingsLabel(
+                "CloudHeading",
+                "cloud backup",
+                new Vector2(-342f, 31f),
+                new Vector2(220f, 30f),
+                19f,
+                TextAlignmentOptions.Left);
+            CreateSettingsLabel(
+                "CloudKeyLabel",
+                "openai api key",
+                new Vector2(-335f, -14f),
+                new Vector2(220f, 30f));
+            CreateSettingsLabel(
+                "CloudModelLabel",
+                "cloud model",
+                new Vector2(-335f, -68f),
+                new Vector2(220f, 30f));
+            CreateSettingsLabel(
+                "CloudLimitLabel",
+                "requests per session",
+                new Vector2(202f, -68f),
+                new Vector2(210f, 30f),
+                15f,
+                TextAlignmentOptions.Right);
+            CreateSettingsLabel(
+                "VoiceHeading",
+                "voice",
+                new Vector2(-342f, -150f),
+                new Vector2(220f, 30f),
+                19f,
+                TextAlignmentOptions.Left);
+            CreateSettingsLabel(
+                "VoiceKeyLabel",
+                "elevenlabs api key",
+                new Vector2(-335f, -195f),
+                new Vector2(220f, 30f));
+            CreateSettingsLabel(
+                "VoiceIdLabel",
+                "voice id",
+                new Vector2(-335f, -249f),
+                new Vector2(220f, 30f));
+
+            PlaceSettingsControl(
+                importVrmButton,
+                new Vector2(-300f, 294f),
+                new Vector2(180f, 44f));
+            PlaceSettingsControl(
+                poseMenuButton,
+                new Vector2(-100f, 294f),
+                new Vector2(180f, 44f));
+            PlaceSettingsControl(
+                poseRotationButton,
+                new Vector2(100f, 294f),
+                new Vector2(180f, 44f));
+            PlaceSettingsControl(
+                memorySettingsButton,
+                new Vector2(300f, 294f),
+                new Vector2(180f, 44f));
+
+            PlaceSettingsControl(
+                llmBaseUrlInput,
+                new Vector2(105f, 188f),
+                new Vector2(560f, 44f));
+            PlaceSettingsControl(
+                llmModelNameInput,
+                new Vector2(105f, 134f),
+                new Vector2(560f, 44f));
+            PlaceSettingsControl(
+                localModeToggle,
+                new Vector2(-210f, 81f),
+                new Vector2(290f, 40f));
+            SetToggleText(
+                localModeToggle,
+                "local ollama primary");
+
+            PlaceSettingsControl(
+                cloudFallbackToggle,
+                new Vector2(198f, 81f),
+                new Vector2(310f, 40f));
+            SetToggleText(
+                cloudFallbackToggle,
+                "cloud backup if local fails");
+
+            PlaceSettingsControl(
+                llmApiKeyInput,
+                new Vector2(105f, -14f),
+                new Vector2(560f, 44f));
+            PlaceSettingsControl(
+                cloudFallbackModelInput,
+                new Vector2(-13f, -68f),
+                new Vector2(325f, 44f));
+            PlaceSettingsControl(
+                cloudFallbackLimitInput,
+                new Vector2(360f, -68f),
+                new Vector2(90f, 44f));
+
+            PlaceSettingsControl(
+                elevenLabsApiKeyInput,
+                new Vector2(105f, -195f),
+                new Vector2(560f, 44f));
+            PlaceSettingsControl(
+                elevenLabsVoiceIdInput,
+                new Vector2(-18f, -249f),
+                new Vector2(315f, 44f));
+            PlaceSettingsControl(
+                voiceModelDropdown,
+                new Vector2(278f, -249f),
+                new Vector2(220f, 44f));
+            PlaceSettingsControl(
+                closeSettingsButton,
+                new Vector2(0f, -340f),
+                new Vector2(270f, 50f));
+            SetButtonText(
+                closeSettingsButton,
+                "save settings");
+
+            cloudFallbackHintLabel = CreateSettingsLabel(
+                "CloudFallbackHint",
+                "gpt-4o-mini is the low-cost default",
+                new Vector2(145f, 31f),
+                new Vector2(440f, 30f),
+                14f,
+                TextAlignmentOptions.Right);
+
+            StyleToggle(localModeToggle);
+            StyleToggle(cloudFallbackToggle);
+        }
+
+        private TMP_InputField CreateSettingsInputClone(
+            TMP_InputField source,
+            string objectName,
+            TMP_InputField.ContentType contentType,
+            int characterLimit)
+        {
+            if (source == null)
+            {
+                return null;
+            }
+
+            GameObject clone =
+                Instantiate(
+                    source.gameObject,
+                    settingsPanel.transform);
+            clone.name = objectName;
+            TMP_InputField input =
+                clone.GetComponent<TMP_InputField>();
+            input.text = string.Empty;
+            input.contentType = contentType;
+            input.characterLimit = characterLimit;
+            input.onValueChanged.RemoveAllListeners();
+            input.onEndEdit.RemoveAllListeners();
+            StyleInputField(input);
+            return input;
+        }
+
+        private static void ConfigureSecretInput(
+            TMP_InputField input,
+            string placeholderText)
+        {
+            if (input == null)
+            {
+                return;
+            }
+
+            input.contentType =
+                TMP_InputField.ContentType.Password;
+            input.inputType =
+                TMP_InputField.InputType.Password;
+            input.asteriskChar = '\u2022';
+            input.characterLimit = 256;
+            TMP_Text placeholder =
+                input.placeholder as TMP_Text;
+            if (placeholder != null)
+            {
+                placeholder.text = placeholderText;
+            }
+            input.ForceLabelUpdate();
+        }
+
+        private void HideLegacySettingsLabels()
+        {
+            TMP_Text[] labels =
+                settingsPanel.GetComponentsInChildren<TMP_Text>(
+                    true);
+            foreach (TMP_Text label in labels)
+            {
+                if (label == null ||
+                    label.GetComponentInParent<TMP_InputField>() !=
+                        null ||
+                    label.GetComponentInParent<Button>() != null ||
+                    label.GetComponentInParent<Toggle>() != null ||
+                    label.GetComponentInParent<TMP_Dropdown>() !=
+                        null)
+                {
+                    continue;
+                }
+
+                label.gameObject.SetActive(false);
+            }
+        }
+
+        private void CreateSettingsCard(
+            string objectName,
+            Vector2 position,
+            Vector2 size)
+        {
+            RectTransform card =
+                CreatePanel(
+                    objectName,
+                    settingsPanel.transform,
+                    new Color32(255, 255, 255, 145));
+            card.anchorMin = new Vector2(0.5f, 0.5f);
+            card.anchorMax = new Vector2(0.5f, 0.5f);
+            card.pivot = new Vector2(0.5f, 0.5f);
+            card.anchoredPosition = position;
+            card.sizeDelta = size;
+            card.SetAsFirstSibling();
+            Image cardImage = card.GetComponent<Image>();
+            if (cardImage != null)
+            {
+                cardImage.raycastTarget = false;
+            }
+        }
+
+        private TextMeshProUGUI CreateSettingsLabel(
+            string objectName,
+            string value,
+            Vector2 position,
+            Vector2 size,
+            float fontSize = 16f,
+            TextAlignmentOptions alignment =
+                TextAlignmentOptions.Left)
+        {
+            return CreateLabel(
+                objectName,
+                settingsPanel.transform,
+                value,
+                fontSize,
+                new Color32(44, 78, 92, 255),
+                alignment,
+                new Vector2(0.5f, 0.5f),
+                new Vector2(0.5f, 0.5f),
+                position,
+                size);
+        }
+
+        private void PlaceSettingsControl(
+            Component control,
+            Vector2 position,
+            Vector2 size)
+        {
+            if (control == null)
+            {
+                return;
+            }
+
+            RectTransform rect =
+                control.GetComponent<RectTransform>();
+            if (rect == null)
+            {
+                return;
+            }
+
+            rect.SetParent(settingsPanel.transform, false);
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = position;
+            rect.sizeDelta = size;
+
+            LayoutElement layout =
+                control.GetComponent<LayoutElement>();
+            if (layout != null)
+            {
+                layout.ignoreLayout = true;
+            }
+        }
+
         private void ApplyInterfaceTheme()
         {
             StyleButton(
@@ -1911,6 +2269,7 @@ namespace AICompanion.UI
             StyleToggle(micToggle);
             StyleToggle(speechBubbleToggle);
             StyleToggle(exploreModeToggle);
+            StyleToggle(cloudFallbackToggle);
 
             if (settingsPanel != null)
             {
@@ -3663,6 +4022,24 @@ namespace AICompanion.UI
             if (llmBaseUrlInput != null) llmBaseUrlInput.text = currentConfig.llmBaseUrl;
             if (llmApiKeyInput != null) llmApiKeyInput.text = currentConfig.llmApiKey;
             if (llmModelNameInput != null) llmModelNameInput.text = currentConfig.llmModelName;
+            if (cloudFallbackModelInput != null)
+            {
+                cloudFallbackModelInput.text =
+                    string.IsNullOrWhiteSpace(
+                        currentConfig.cloudFallbackModelName)
+                        ? "gpt-4o-mini"
+                        : currentConfig.cloudFallbackModelName;
+            }
+            if (cloudFallbackLimitInput != null)
+            {
+                cloudFallbackLimitInput.text =
+                    Mathf.Clamp(
+                        currentConfig
+                            .cloudFallbackMaxRequestsPerSession,
+                        1,
+                        20)
+                    .ToString();
+            }
             if (elevenLabsApiKeyInput != null) elevenLabsApiKeyInput.text = currentConfig.elevenLabsApiKey;
             if (elevenLabsVoiceIdInput != null) elevenLabsVoiceIdInput.text = currentConfig.elevenLabsVoiceId;
             if (localModeToggle != null) localModeToggle.isOn = currentConfig.isLocalMode;
@@ -3682,20 +4059,63 @@ namespace AICompanion.UI
             {
                 PopulateMemorySettingsUI();
             }
+            ConfigureSecretInput(
+                llmApiKeyInput,
+                "paste a new openai api key");
+            ConfigureSecretInput(
+                elevenLabsApiKeyInput,
+                "paste a new elevenlabs api key");
         }
 
         private void HandleCloseSettings()
         {
             currentConfig.llmBaseUrl = llmBaseUrlInput.text;
-            currentConfig.llmApiKey = llmApiKeyInput.text;
+            string normalizedCloudKey =
+                NormalizeOpenAiKey(
+                    llmApiKeyInput.text);
+            if (!string.IsNullOrEmpty(normalizedCloudKey) &&
+                !IsPlausibleOpenAiKey(normalizedCloudKey))
+            {
+                if (cloudFallbackHintLabel != null)
+                {
+                    cloudFallbackHintLabel.text =
+                        "key format looks wrong — paste only the key";
+                    cloudFallbackHintLabel.color =
+                        new Color32(207, 83, 104, 255);
+                }
+                llmApiKeyInput.text = normalizedCloudKey;
+                llmApiKeyInput.ActivateInputField();
+                return;
+            }
+
+            currentConfig.llmApiKey = normalizedCloudKey;
             currentConfig.llmModelName = llmModelNameInput.text;
-            currentConfig.elevenLabsApiKey = elevenLabsApiKeyInput.text;
-            currentConfig.elevenLabsVoiceId = elevenLabsVoiceIdInput.text;
+            currentConfig.elevenLabsApiKey =
+                elevenLabsApiKeyInput.text.Trim();
+            currentConfig.elevenLabsVoiceId =
+                elevenLabsVoiceIdInput.text.Trim();
             currentConfig.isLocalMode = localModeToggle.isOn;
             if (cloudFallbackToggle != null)
             {
                 currentConfig.cloudFallbackEnabled =
                     cloudFallbackToggle.isOn;
+            }
+            if (cloudFallbackModelInput != null)
+            {
+                currentConfig.cloudFallbackModelName =
+                    string.IsNullOrWhiteSpace(
+                        cloudFallbackModelInput.text)
+                        ? "gpt-4o-mini"
+                        : cloudFallbackModelInput.text.Trim();
+            }
+            if (cloudFallbackLimitInput != null &&
+                int.TryParse(
+                    cloudFallbackLimitInput.text,
+                    out int fallbackLimit))
+            {
+                currentConfig
+                    .cloudFallbackMaxRequestsPerSession =
+                    Mathf.Clamp(fallbackLimit, 1, 20);
             }
             if (voiceModelDropdown != null)
             {
@@ -3720,6 +4140,47 @@ namespace AICompanion.UI
             settingsPanel.SetActive(false);
             UpdateConnectionStatus();
             AppendLog("System", "Configuration Saved successfully.");
+        }
+
+        private static string NormalizeOpenAiKey(
+            string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return string.Empty;
+            }
+
+            string normalized =
+                value.Trim().Trim('"', '\'');
+            if (normalized.StartsWith(
+                    "bearer ",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                normalized =
+                    normalized.Substring(7).Trim();
+            }
+
+            int whitespace =
+                normalized.IndexOfAny(
+                    new[] { ' ', '\t', '\r', '\n' });
+            if (whitespace > 0)
+            {
+                normalized =
+                    normalized.Substring(0, whitespace);
+            }
+            return normalized;
+        }
+
+        private static bool IsPlausibleOpenAiKey(
+            string value)
+        {
+            return !string.IsNullOrWhiteSpace(value) &&
+                value.StartsWith(
+                    "sk-",
+                    StringComparison.Ordinal) &&
+                value.Length >= 24 &&
+                value.IndexOfAny(
+                    new[] { ' ', '\t', '\r', '\n' }) < 0;
         }
 
         private void HandleSend()
@@ -3933,8 +4394,13 @@ namespace AICompanion.UI
                         string.IsNullOrWhiteSpace(
                             currentConfig.llmApiKey)
                         ? "local mode (ollama)"
-                        : "local mode (ollama + o3 fallback)"
-                    : "cloud mode (online api)";
+                        : "local mode (ollama + " +
+                            currentConfig
+                                .cloudFallbackModelName +
+                            " backup)"
+                    : "cloud mode (" +
+                        currentConfig.cloudFallbackModelName +
+                        ")";
             }
         }
     }

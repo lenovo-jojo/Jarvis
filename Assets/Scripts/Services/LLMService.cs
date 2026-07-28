@@ -98,7 +98,17 @@ namespace AICompanion.Services
                 : config.llmApiKey;
             string modelName = config.isLocalMode
                 ? config.llmModelName
-                : "gpt-4o-mini";
+                : GetCloudFallbackModel(config);
+
+            if (!config.isLocalMode &&
+                !IsPlausibleOpenAIKey(config.llmApiKey))
+            {
+                onError?.Invoke(
+                    "cloud api key is missing or malformed. " +
+                    "paste only a newly created openai api key " +
+                    "in settings.");
+                yield break;
+            }
 
             // If empty baseUrl, fallback to default Ollama
             if (string.IsNullOrEmpty(baseUrl))
@@ -383,7 +393,19 @@ namespace AICompanion.Services
             jsonBuilder.Append("]");
             jsonBuilder.Append("}");
 
-            byte[] jsonBytes = Encoding.UTF8.GetBytes(jsonBuilder.ToString());
+            string primaryPayload =
+                jsonBuilder.ToString();
+            if (!config.isLocalMode)
+            {
+                primaryPayload =
+                    BuildCloudFallbackPayload(
+                        primaryPayload,
+                        modelName,
+                        modelName,
+                        config.cloudFallbackMaxOutputTokens);
+            }
+            byte[] jsonBytes =
+                Encoding.UTF8.GetBytes(primaryPayload);
 
             using (UnityWebRequest webRequest = new UnityWebRequest(endpoint, "POST"))
             {
@@ -419,6 +441,18 @@ namespace AICompanion.Services
                     BuildRequestError(webRequest);
                 if (!CanUseCloudFallback(config))
                 {
+                    if (config.isLocalMode &&
+                        config.cloudFallbackEnabled &&
+                        !string.IsNullOrWhiteSpace(
+                            config.llmApiKey) &&
+                        !IsPlausibleOpenAIKey(
+                            config.llmApiKey))
+                    {
+                        primaryError +=
+                            "\ncloud fallback key is malformed. " +
+                            "paste only a newly created openai " +
+                            "api key in settings.";
+                    }
                     onError?.Invoke(primaryError);
                     yield break;
                 }
@@ -526,7 +560,7 @@ namespace AICompanion.Services
             return config != null &&
                 config.isLocalMode &&
                 config.cloudFallbackEnabled &&
-                !string.IsNullOrWhiteSpace(
+                IsPlausibleOpenAIKey(
                     config.llmApiKey) &&
                 cloudFallbackRequestsThisSession <
                     GetCloudFallbackRequestLimit(config);
@@ -545,9 +579,26 @@ namespace AICompanion.Services
             ServiceConfig config)
         {
             return string.IsNullOrWhiteSpace(
-                    config.cloudFallbackModelName)
-                ? "o3"
+                config.cloudFallbackModelName)
+                ? "gpt-4o-mini"
                 : config.cloudFallbackModelName.Trim();
+        }
+
+        private static bool IsPlausibleOpenAIKey(
+            string apiKey)
+        {
+            if (string.IsNullOrWhiteSpace(apiKey))
+            {
+                return false;
+            }
+
+            string trimmed = apiKey.Trim();
+            return trimmed.StartsWith(
+                    "sk-",
+                    StringComparison.Ordinal) &&
+                trimmed.Length >= 24 &&
+                trimmed.IndexOfAny(
+                    new[] { ' ', '\t', '\r', '\n' }) < 0;
         }
 
         private static string BuildCloudFallbackPayload(
@@ -587,9 +638,13 @@ namespace AICompanion.Services
             }
             else
             {
-                payload = payload.Replace(
-                    "\"max_tokens\":320,",
-                    $"\"max_tokens\":{outputLimit},");
+                payload = payload
+                    .Replace(
+                        "\"reasoning_effort\":\"none\",",
+                        string.Empty)
+                    .Replace(
+                        "\"max_tokens\":320,",
+                        $"\"max_tokens\":{outputLimit},");
             }
 
             return payload;
@@ -603,18 +658,31 @@ namespace AICompanion.Services
                 return "Request failed before it was sent.";
             }
 
-            string error =
-                $"HTTP Error: {request.responseCode} - " +
-                request.error;
-            if (request.downloadHandler != null &&
-                !string.IsNullOrWhiteSpace(
-                    request.downloadHandler.text))
+            switch (request.responseCode)
             {
-                error +=
-                    "\nDetails: " +
-                    request.downloadHandler.text;
+                case 400:
+                    return "the cloud request was rejected (400). " +
+                        "check the selected model and settings.";
+                case 401:
+                    return "cloud api key was rejected (401). " +
+                        "create a new key and paste only the key " +
+                        "in settings.";
+                case 403:
+                    return "cloud access was denied (403). check " +
+                        "the key's project permissions.";
+                case 404:
+                    return "the selected cloud model or endpoint " +
+                        "was not found (404).";
+                case 429:
+                    return "the cloud usage or rate limit was " +
+                        "reached (429).";
             }
-            return error;
+
+            return request.responseCode > 0
+                ? $"request failed ({request.responseCode}): " +
+                    request.error
+                : "could not reach the model service: " +
+                    request.error;
         }
 
         private string BuildVisionPayload(
