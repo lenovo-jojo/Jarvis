@@ -3276,7 +3276,7 @@ namespace AICompanion.Services
         {
             conversationFocusAvatar = null;
             cameraAttentionRequested = true;
-            ApplyCameraAttention();
+            ApplyCameraAttention(true);
         }
 
         public void SetCameraAttentionLocked(
@@ -3287,11 +3287,12 @@ namespace AICompanion.Services
             {
                 conversationFocusAvatar = null;
                 cameraAttentionRequested = true;
-                ApplyCameraAttention();
+                ApplyCameraAttention(true);
             }
         }
 
-        private void ApplyCameraAttention()
+        private void ApplyCameraAttention(
+            bool immediate = false)
         {
             Camera activeCamera = Camera.main;
             if (activeCamera == null)
@@ -3329,16 +3330,19 @@ namespace AICompanion.Services
 
             ApplyCameraAttention(
                 currentAvatarGo,
-                activeCamera.transform.position);
+                activeCamera.transform.position,
+                immediate);
             ApplyCameraAttention(
                 playerAvatarGo,
-                activeCamera.transform.position);
+                activeCamera.transform.position,
+                immediate);
             foreach (GameObject avatar in
                 worldAvatars.Values)
             {
                 ApplyCameraAttention(
                     avatar,
-                    activeCamera.transform.position);
+                    activeCamera.transform.position,
+                    immediate);
             }
         }
 
@@ -3359,7 +3363,8 @@ namespace AICompanion.Services
 
         private static void ApplyCameraAttention(
             GameObject avatar,
-            Vector3 cameraPosition)
+            Vector3 cameraPosition,
+            bool immediate = false)
         {
             if (avatar == null ||
                 !avatar.activeInHierarchy)
@@ -3378,14 +3383,17 @@ namespace AICompanion.Services
                         bodyDirection.normalized,
                         Vector3.up);
                 avatar.transform.rotation =
-                    Quaternion.Slerp(
-                        avatar.transform.rotation,
-                        targetRotation,
-                        Time.unscaledDeltaTime * 6f);
+                    immediate
+                        ? targetRotation
+                        : Quaternion.RotateTowards(
+                            avatar.transform.rotation,
+                            targetRotation,
+                            360f * Time.unscaledDeltaTime);
             }
 
             Vrm10Instance instance =
-                avatar.GetComponent<Vrm10Instance>();
+                avatar.GetComponentInChildren<
+                    Vrm10Instance>(true);
             if (instance?.Runtime?.LookAt != null)
             {
                 instance.Runtime.LookAt.LookAtInput =

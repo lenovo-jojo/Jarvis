@@ -1886,18 +1886,21 @@ namespace AICompanion.UI
 
         private void BuildSettingsPanelLayout()
         {
-            if (settingsPanel == null)
+            if (settingsPanel == null ||
+                safeAreaRoot == null)
             {
                 return;
             }
 
             RectTransform settingsRect =
                 settingsPanel.GetComponent<RectTransform>();
+            settingsRect.SetParent(safeAreaRoot, false);
+            settingsRect.SetAsLastSibling();
             settingsRect.anchorMin = new Vector2(0.5f, 0.5f);
             settingsRect.anchorMax = new Vector2(0.5f, 0.5f);
             settingsRect.pivot = new Vector2(0.5f, 0.5f);
             settingsRect.anchoredPosition = Vector2.zero;
-            settingsRect.sizeDelta = new Vector2(900f, 760f);
+            settingsRect.sizeDelta = new Vector2(940f, 760f);
 
             HideLegacySettingsLabels();
 
@@ -1946,36 +1949,36 @@ namespace AICompanion.UI
             CreateSettingsLabel(
                 "LocalAiHeading",
                 "local ai",
-                new Vector2(-342f, 231f),
+                new Vector2(-300f, 231f),
                 new Vector2(220f, 30f),
                 19f,
                 TextAlignmentOptions.Left);
             CreateSettingsLabel(
                 "LocalUrlLabel",
                 "ollama server",
-                new Vector2(-335f, 188f),
+                new Vector2(-300f, 188f),
                 new Vector2(220f, 30f));
             CreateSettingsLabel(
                 "LocalModelLabel",
                 "local model",
-                new Vector2(-335f, 134f),
+                new Vector2(-300f, 134f),
                 new Vector2(220f, 30f));
             CreateSettingsLabel(
                 "CloudHeading",
                 "cloud backup",
-                new Vector2(-342f, 31f),
+                new Vector2(-300f, 31f),
                 new Vector2(220f, 30f),
                 19f,
                 TextAlignmentOptions.Left);
             CreateSettingsLabel(
                 "CloudKeyLabel",
                 "openai api key",
-                new Vector2(-335f, -14f),
+                new Vector2(-300f, -14f),
                 new Vector2(220f, 30f));
             CreateSettingsLabel(
                 "CloudModelLabel",
                 "cloud model",
-                new Vector2(-335f, -68f),
+                new Vector2(-300f, -68f),
                 new Vector2(220f, 30f));
             CreateSettingsLabel(
                 "CloudLimitLabel",
@@ -1987,19 +1990,19 @@ namespace AICompanion.UI
             CreateSettingsLabel(
                 "VoiceHeading",
                 "voice",
-                new Vector2(-342f, -150f),
+                new Vector2(-300f, -150f),
                 new Vector2(220f, 30f),
                 19f,
                 TextAlignmentOptions.Left);
             CreateSettingsLabel(
                 "VoiceKeyLabel",
                 "elevenlabs api key",
-                new Vector2(-335f, -195f),
+                new Vector2(-300f, -195f),
                 new Vector2(220f, 30f));
             CreateSettingsLabel(
                 "VoiceIdLabel",
                 "voice id",
-                new Vector2(-335f, -249f),
+                new Vector2(-300f, -249f),
                 new Vector2(220f, 30f));
 
             PlaceSettingsControl(
@@ -2130,6 +2133,20 @@ namespace AICompanion.UI
                 TMP_InputField.InputType.Password;
             input.asteriskChar = '\u2022';
             input.characterLimit = 256;
+            if (input.textViewport != null &&
+                input.textViewport.GetComponent<RectMask2D>() ==
+                    null)
+            {
+                input.textViewport.gameObject.AddComponent<
+                    RectMask2D>();
+            }
+            if (input.textComponent != null)
+            {
+                input.textComponent.textWrappingMode =
+                    TextWrappingModes.NoWrap;
+                input.textComponent.overflowMode =
+                    TextOverflowModes.Masking;
+            }
             TMP_Text placeholder =
                 input.placeholder as TMP_Text;
             if (placeholder != null)
