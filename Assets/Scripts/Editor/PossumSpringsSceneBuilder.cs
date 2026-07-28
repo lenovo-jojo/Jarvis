@@ -12,7 +12,7 @@ namespace AICompanion.Editor
 {
     public static class PossumSpringsSceneBuilder
     {
-        private const int BuilderVersion = 3;
+        private const int BuilderVersion = 5;
         private const string BuilderVersionKey =
             "AICompanion.PossumSpringsBuilderVersion";
         private const string ModelPath =
@@ -147,16 +147,38 @@ namespace AICompanion.Editor
                     AddFallbackGround(root, bounds);
                 }
 
-                AddSpawnMarker(root);
+                Vector3 spawnPosition =
+                    FindPlayableSpawn(town, bounds);
+                AddSpawnMarker(
+                    root,
+                    spawnPosition);
                 AddLighting(root);
-                AddOverviewCamera(root, bounds);
+                AddOverviewCamera(
+                    root,
+                    bounds,
+                    spawnPosition);
 
-                PrefabUtility.SaveAsPrefabAsset(
+                GameObject savedPrefab =
+                    PrefabUtility.SaveAsPrefabAsset(
                     root,
                     PrefabPath);
-                EditorSceneManager.SaveScene(
-                    scene,
-                    ScenePath);
+                Scene openTargetScene =
+                    SceneManager.GetSceneByPath(
+                        ScenePath);
+                if (openTargetScene.IsValid() &&
+                    openTargetScene.isLoaded &&
+                    openTargetScene != scene)
+                {
+                    ReplaceOpenGeneratedScene(
+                        openTargetScene,
+                        savedPrefab);
+                }
+                else
+                {
+                    EditorSceneManager.SaveScene(
+                        scene,
+                        ScenePath);
+                }
                 AddSceneToBuildSettings();
                 AssetDatabase.SaveAssets();
                 AssetDatabase.Refresh();
@@ -167,7 +189,8 @@ namespace AICompanion.Editor
                 Debug.Log(
                     $"[PossumSprings] Built scene and prefab. " +
                     $"Walking colliders: {colliderCount}. " +
-                    $"Bounds: {bounds.size}.");
+                    $"Bounds: {bounds.size}. " +
+                    $"Spawn: {spawnPosition}.");
             }
             finally
             {
@@ -260,6 +283,10 @@ namespace AICompanion.Editor
                 {
                     ConfigureLeafMaterial(material);
                 }
+                else
+                {
+                    ConfigureAtlasMaterial(material);
+                }
 
                 EditorUtility.SetDirty(material);
                 result[embedded.name] = material;
@@ -284,6 +311,33 @@ namespace AICompanion.Editor
                 material.SetFloat("_Cull", 0f);
             }
             material.EnableKeyword("_ALPHATEST_ON");
+        }
+
+        private static void ConfigureAtlasMaterial(
+            Material material)
+        {
+            if (material.HasProperty("_Cutoff"))
+            {
+                material.SetFloat("_Cutoff", 0.1f);
+            }
+            if (material.HasProperty("_AlphaClip"))
+            {
+                material.SetFloat("_AlphaClip", 1f);
+            }
+            if (material.HasProperty("_Cull"))
+            {
+                material.SetFloat("_Cull", 0f);
+            }
+            if (material.HasProperty("_Smoothness"))
+            {
+                material.SetFloat("_Smoothness", 0f);
+            }
+            material.SetOverrideTag(
+                "RenderType",
+                "TransparentCutout");
+            material.EnableKeyword("_ALPHATEST_ON");
+            material.renderQueue =
+                (int)UnityEngine.Rendering.RenderQueue.AlphaTest;
         }
 
         private static void ApplyMaterials(
@@ -391,14 +445,112 @@ namespace AICompanion.Editor
                     Mathf.Max(10f, bounds.size.z));
         }
 
+        private static Vector3 FindPlayableSpawn(
+            GameObject town,
+            Bounds bounds)
+        {
+            Physics.SyncTransforms();
+
+            Vector3 center =
+                new Vector3(
+                    bounds.center.x,
+                    0f,
+                    bounds.center.z);
+            float searchRadius =
+                Mathf.Clamp(
+                    Mathf.Min(
+                        bounds.size.x,
+                        bounds.size.z) * 0.08f,
+                    30f,
+                    180f);
+            float rayStartY =
+                bounds.max.y + 20f;
+            float rayDistance =
+                bounds.size.y + 80f;
+            bool found = false;
+            Vector3 bestPoint =
+                new Vector3(
+                    center.x,
+                    bounds.min.y,
+                    center.z);
+            float bestScore = float.MaxValue;
+
+            const int gridRadius = 5;
+            for (int xIndex = -gridRadius;
+                 xIndex <= gridRadius;
+                 xIndex++)
+            {
+                for (int zIndex = -gridRadius;
+                     zIndex <= gridRadius;
+                     zIndex++)
+                {
+                    float x =
+                        center.x +
+                        xIndex *
+                        searchRadius /
+                        gridRadius;
+                    float z =
+                        center.z +
+                        zIndex *
+                        searchRadius /
+                        gridRadius;
+                    RaycastHit[] hits =
+                        Physics.RaycastAll(
+                            new Vector3(
+                                x,
+                                rayStartY,
+                                z),
+                            Vector3.down,
+                            rayDistance);
+                    foreach (RaycastHit hit in hits)
+                    {
+                        if (hit.collider == null ||
+                            !hit.collider.transform.IsChildOf(
+                                town.transform) ||
+                            hit.normal.y < 0.6f)
+                        {
+                            continue;
+                        }
+
+                        float horizontalDistance =
+                            Vector2.Distance(
+                                new Vector2(x, z),
+                                new Vector2(
+                                    center.x,
+                                    center.z));
+                        float score =
+                            hit.point.y +
+                            horizontalDistance * 0.08f;
+                        if (score >= bestScore)
+                        {
+                            continue;
+                        }
+
+                        bestScore = score;
+                        bestPoint = hit.point;
+                        found = true;
+                    }
+                }
+            }
+
+            if (!found)
+            {
+                Debug.LogWarning(
+                    "[PossumSprings] No central walkable " +
+                    "surface was found; using the bounds center.");
+            }
+
+            return bestPoint + Vector3.up * 0.08f;
+        }
+
         private static void AddSpawnMarker(
-            GameObject root)
+            GameObject root,
+            Vector3 spawnPosition)
         {
             GameObject spawn =
                 new GameObject("PlayerSpawn");
             spawn.transform.SetParent(root.transform, false);
-            spawn.transform.position =
-                new Vector3(0f, 0.1f, 0f);
+            spawn.transform.position = spawnPosition;
         }
 
         private static void AddLighting(
@@ -420,7 +572,8 @@ namespace AICompanion.Editor
 
         private static void AddOverviewCamera(
             GameObject root,
-            Bounds bounds)
+            Bounds bounds,
+            Vector3 spawnPosition)
         {
             GameObject cameraObject =
                 new GameObject("PossumSpringsOverviewCamera");
@@ -437,20 +590,12 @@ namespace AICompanion.Editor
                 Mathf.Max(
                     1000f,
                     bounds.size.magnitude * 4f);
-
-            float distance =
-                Mathf.Max(
-                    15f,
-                    bounds.size.magnitude * 0.65f);
             Vector3 target =
-                bounds.center +
-                Vector3.up * bounds.extents.y * 0.15f;
+                spawnPosition +
+                new Vector3(0f, 1.55f, 12f);
             cameraObject.transform.position =
-                target +
-                new Vector3(
-                    distance * 0.55f,
-                    distance * 0.35f,
-                    -distance);
+                spawnPosition +
+                new Vector3(0f, 1.65f, -0.25f);
             cameraObject.transform.LookAt(target);
         }
 
@@ -486,6 +631,26 @@ namespace AICompanion.Editor
 
             EditorBuildSettings.scenes =
                 scenes.ToArray();
+        }
+
+        private static void ReplaceOpenGeneratedScene(
+            Scene targetScene,
+            GameObject prefab)
+        {
+            foreach (GameObject root in
+                targetScene.GetRootGameObjects())
+            {
+                UnityEngine.Object.DestroyImmediate(
+                    root);
+            }
+
+            PrefabUtility.InstantiatePrefab(
+                prefab,
+                targetScene);
+            EditorSceneManager.MarkSceneDirty(
+                targetScene);
+            EditorSceneManager.SaveScene(
+                targetScene);
         }
 
         private static string MakeSafeAssetName(
