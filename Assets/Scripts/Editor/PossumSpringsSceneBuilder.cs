@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using AICompanion.Services;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -12,7 +13,7 @@ namespace AICompanion.Editor
 {
     public static class PossumSpringsSceneBuilder
     {
-        private const int BuilderVersion = 5;
+        private const int BuilderVersion = 6;
         private const string BuilderVersionKey =
             "AICompanion.PossumSpringsBuilderVersion";
         private const string ModelPath =
@@ -115,6 +116,8 @@ namespace AICompanion.Editor
             {
                 GameObject root =
                     new GameObject("PossumSpringsScene");
+                root.AddComponent<
+                    PossumSpringsBootstrap>();
                 GameObject town =
                     PrefabUtility.InstantiatePrefab(
                         model,
@@ -254,6 +257,14 @@ namespace AICompanion.Editor
                 {
                     material.CopyPropertiesFromMaterial(
                         embedded);
+                }
+
+                Shader worldShader =
+                    Shader.Find(
+                        "JARVIS/Possum Springs Vertex Color");
+                if (worldShader != null)
+                {
+                    material.shader = worldShader;
                 }
 
                 bool isLeaves =

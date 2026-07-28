@@ -7,6 +7,7 @@ using UnityEngine;
 using UnityEngine.Playables;
 using UnityEngine.Animations;
 using UnityEngine.EventSystems;
+using UnityEngine.SceneManagement;
 using AICompanion.Core;
 using UniGLTF;
 using UniVRM10;
@@ -446,6 +447,13 @@ namespace AICompanion.Services
 
         private void Start()
         {
+            if (SceneManager.GetActiveScene().name.Equals(
+                    "PossumSprings",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
             CreateVisualStudioStage();
             LoadOptionalPoses();
 

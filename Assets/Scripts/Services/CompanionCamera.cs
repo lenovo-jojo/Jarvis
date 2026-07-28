@@ -100,6 +100,9 @@ namespace AICompanion.Services
         private RaycastHit blanketClickHit;
         private RuntimeHumanoidPosePlayer playerSeatedPose;
         private float povLeanDistance;
+        private bool followWorldSurface;
+        private float navigationMinHeight = 0.02f;
+        private float navigationMaxHeight = 20f;
 
         private void Awake()
         {
@@ -608,7 +611,11 @@ namespace AICompanion.Services
 
         private Vector3 ClampAboveGround(Vector3 position)
         {
-            position.y = Mathf.Max(position.y, groundClearance);
+            position.y =
+                Mathf.Max(
+                    position.y,
+                    navigationMinHeight +
+                    groundClearance);
             return position;
         }
 
@@ -1138,8 +1145,9 @@ namespace AICompanion.Services
 
             explorePosition.y = Mathf.Clamp(
                 explorePosition.y,
-                groundClearance,
-                maxExploreHeight);
+                navigationMinHeight +
+                    groundClearance,
+                navigationMaxHeight);
             transform.SetPositionAndRotation(
                 explorePosition,
                 Quaternion.Euler(explorePitch, exploreYaw, 0f));
@@ -1199,20 +1207,39 @@ namespace AICompanion.Services
                 appliedSpeed = speed *
                     horizontalMove.magnitude /
                     worldMove.magnitude;
-                playerAvatar.position +=
-                    worldMove.normalized * speed * Time.deltaTime;
+                Vector3 previousPosition =
+                    playerAvatar.position;
+                Vector3 proposedPosition =
+                    previousPosition +
+                    worldMove.normalized *
+                    speed *
+                    Time.deltaTime;
+                if (followWorldSurface &&
+                    Mathf.Abs(localMove.y) < 0.01f)
+                {
+                    proposedPosition =
+                        FollowNearbySurface(
+                            previousPosition,
+                            proposedPosition);
+                }
+                playerAvatar.position =
+                    proposedPosition;
             }
 
             Vector3 playerPosition = playerAvatar.position;
             playerPosition.y = Mathf.Clamp(
                 playerPosition.y,
-                0.02f,
-                Mathf.Max(0.02f, maxExploreHeight - 1f));
+                navigationMinHeight,
+                Mathf.Max(
+                    navigationMinHeight,
+                    navigationMaxHeight - 1f));
             playerAvatar.position = playerPosition;
             playerLocomotion?.SetMotion(
                 appliedSpeed,
                 sprinting,
-                playerPosition.y > 0.05f);
+                !followWorldSurface &&
+                playerPosition.y >
+                    navigationMinHeight + 0.05f);
 
             Quaternion cameraRotation =
                 Quaternion.Euler(
@@ -1248,6 +1275,56 @@ namespace AICompanion.Services
             }
             currentTargetCamPos = explorePosition;
             isInitialized = true;
+        }
+
+        private Vector3 FollowNearbySurface(
+            Vector3 previousPosition,
+            Vector3 proposedPosition)
+        {
+            Vector3 origin =
+                proposedPosition +
+                Vector3.up * 1.5f;
+            RaycastHit[] hits =
+                Physics.RaycastAll(
+                    origin,
+                    Vector3.down,
+                    6f,
+                    Physics.DefaultRaycastLayers,
+                    QueryTriggerInteraction.Ignore);
+            bool found = false;
+            float bestDistance = float.MaxValue;
+            float surfaceY = previousPosition.y;
+            foreach (RaycastHit hit in hits)
+            {
+                if (hit.collider == null ||
+                    hit.normal.y < 0.45f ||
+                    (playerAvatar != null &&
+                     hit.collider.transform.IsChildOf(
+                         playerAvatar)))
+                {
+                    continue;
+                }
+
+                float step =
+                    Mathf.Abs(
+                        hit.point.y -
+                        previousPosition.y);
+                if (step > 2.25f ||
+                    step >= bestDistance)
+                {
+                    continue;
+                }
+
+                bestDistance = step;
+                surfaceY = hit.point.y;
+                found = true;
+            }
+
+            proposedPosition.y =
+                found
+                    ? surfaceY
+                    : previousPosition.y;
+            return proposedPosition;
         }
 
         private void EnsureExplorePose()
@@ -1329,6 +1406,21 @@ namespace AICompanion.Services
             {
                 cam.nearClipPlane = PovNearClipPlane;
             }
+        }
+
+        public void ConfigureWorldNavigation(
+            float minimumHeight,
+            float maximumHeight,
+            float walkingSpeed)
+        {
+            navigationMinHeight = minimumHeight;
+            navigationMaxHeight =
+                Mathf.Max(
+                    minimumHeight + 2f,
+                    maximumHeight);
+            maxExploreHeight = navigationMaxHeight;
+            moveSpeed = Mathf.Max(1f, walkingSpeed);
+            followWorldSurface = true;
         }
 
         private void UpdateCharacterInteraction(
