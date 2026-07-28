@@ -38,11 +38,10 @@ namespace AICompanion.Services
         [SerializeField] private float exploreLookSensitivity = 0.25f;
         [SerializeField] private float minExplorePitch = -85f;
         [SerializeField] private float maxExplorePitch = 85f;
-        [SerializeField] private float playerCameraDistance = 3.2f;
-        [SerializeField] private float minPlayerCameraDistance = 1.2f;
-        [SerializeField] private float maxPlayerCameraDistance = 7f;
         [SerializeField] private float playerTurnSpeed = 12f;
         [SerializeField] private float conversationTurnSpeed = 4f;
+        [SerializeField] private float maxPovLean = 0.45f;
+        [SerializeField] private float povLeanSensitivity = 0.0015f;
 
         [Header("Character Tracking")]
         [SerializeField] private Transform selectedTarget;
@@ -72,6 +71,10 @@ namespace AICompanion.Services
         private Vector3 stableLocalFaceFocusPos;
         private float stableFaceFocusHeight = 0.6f;
         private Vector3 stableLocalFaceForward = Vector3.forward;
+        private bool isTvGroupFraming;
+        private Vector3 tvGroupFocusPosition;
+        private float tvGroupFocusHeight = 1.8f;
+        private Vector3[] tvGroupBoundsCorners;
         private bool isFaceFocusMode;
         private bool hasManualFocus;
         private Vector3 manualFocusPosition;
@@ -82,18 +85,27 @@ namespace AICompanion.Services
         private bool hasExplorePose;
         private Transform playerAvatar;
         private PlayerLocomotionAnimator playerLocomotion;
-        private RuntimeHumanoidPosePlayer playerCharacterPose;
-        private RuntimeHumanoidPosePlayer companionCharacterPose;
         private Vector3 playerLocalCameraPivot =
             new Vector3(0f, 1.35f, 0f);
+        private const float PovBodyRevealPitch = 32f;
+        private const float PovEyeForwardOffset = 0.035f;
+        private const float PovNearClipPlane = 0.025f;
+        private const float PovBodyNearClipPlane = 0.12f;
+        private const float BlanketClickDragThreshold = 12f;
+        private float characterNearClipPlane;
+        private bool playerRenderersVisible = true;
         private bool exploreFollowingPlayer = true;
-        private bool hasPlacedCharacterPair;
-        private GameObject characterPoseTarget;
-        private float characterBlanketSurfaceY = 0.02f;
+        private bool blanketClickArmed;
+        private Vector2 blanketPressPosition;
+        private RaycastHit blanketClickHit;
+        private RuntimeHumanoidPosePlayer playerSeatedPose;
+        private float povLeanDistance;
 
         private void Awake()
         {
             cam = GetComponent<Camera>();
+            characterNearClipPlane =
+                cam != null ? cam.nearClipPlane : 0.1f;
             EnsureRuntimeDefaults();
         }
 
@@ -224,23 +236,16 @@ namespace AICompanion.Services
                 ? stableLocalFaceFocusPos
                 : stableLocalFullBodyFocusPos;
             Vector3 targetFocusPos =
-                targetGo.transform.TransformPoint(activeLocalFocusPos);
-            float targetHeight = isFaceFocusMode
-                ? stableFaceFocusHeight
-                : stableFullBodyFocusHeight;
-            if (!exploreMode &&
-                !isFaceFocusMode &&
-                companionCharacterPose != null &&
-                playerAvatar != null &&
-                TryGetCombinedAvatarBounds(
-                    targetGo,
-                    playerAvatar.gameObject,
-                    out Bounds pairBounds))
-            {
-                targetFocusPos = pairBounds.center;
-                targetHeight = pairBounds.size.y;
-            }
-
+                isTvGroupFraming
+                    ? tvGroupFocusPosition
+                    : targetGo.transform.TransformPoint(
+                        activeLocalFocusPos);
+            float targetHeight =
+                isTvGroupFraming
+                    ? tvGroupFocusHeight
+                    : isFaceFocusMode
+                        ? stableFaceFocusHeight
+                        : stableFullBodyFocusHeight;
             if (!isInitialized)
             {
                 smoothedFocusPos = targetFocusPos;
@@ -263,6 +268,8 @@ namespace AICompanion.Services
             {
                 bool leftPressed = Mouse.current.leftButton.isPressed;
                 bool leftPressedThisFrame = Mouse.current.leftButton.wasPressedThisFrame;
+                bool leftReleasedThisFrame =
+                    Mouse.current.leftButton.wasReleasedThisFrame;
                 bool rightPressed = Mouse.current.rightButton.isPressed;
                 Vector2 mouseDelta = Mouse.current.delta.ReadValue();
                 float scroll = Mouse.current.scroll.ReadValue().y;
@@ -271,15 +278,46 @@ namespace AICompanion.Services
 
                 if (leftPressedThisFrame)
                 {
-                    isOrbitBlockedByAvatarDrag = IsPointerOverAvatar(targetGo, mousePos);
+                    isOrbitBlockedByAvatarDrag =
+                        IsPointerOverSelectableCharacter(
+                            targetGo,
+                            mousePos);
+                    blanketClickArmed =
+                        !pointerOverUi &&
+                        TryRaycastBlanket(
+                            mousePos,
+                            out blanketClickHit);
+                    blanketPressPosition = mousePos;
                 }
                 else if (!leftPressed)
                 {
                     isOrbitBlockedByAvatarDrag = false;
                 }
 
+                if (blanketClickArmed &&
+                    leftPressed &&
+                    Vector2.Distance(
+                        blanketPressPosition,
+                        mousePos) >
+                    BlanketClickDragThreshold)
+                {
+                    blanketClickArmed = false;
+                }
+
+                if (leftReleasedThisFrame)
+                {
+                    if (blanketClickArmed && !pointerOverUi)
+                    {
+                        SeatPlayerOnBlanket(blanketClickHit);
+                        isInteracting = true;
+                    }
+                    blanketClickArmed = false;
+                }
+
                 bool backgroundLeftDrag =
-                    leftPressed && !isOrbitBlockedByAvatarDrag;
+                    leftPressed &&
+                    !isOrbitBlockedByAvatarDrag &&
+                    !blanketClickArmed;
                 bool orbitDragPressed =
                     rightPressed || backgroundLeftDrag;
 
@@ -348,11 +386,11 @@ namespace AICompanion.Services
                     !pointerOverUi &&
                     Mathf.Abs(scroll) > 0.01f)
                 {
-                    playerCameraDistance = Mathf.Clamp(
-                        playerCameraDistance -
-                        scroll * zoomSensitivity,
-                        minPlayerCameraDistance,
-                        maxPlayerCameraDistance);
+                    povLeanDistance = Mathf.Clamp(
+                        povLeanDistance +
+                        scroll * povLeanSensitivity,
+                        -0.08f,
+                        maxPovLean);
                     isInteracting = true;
                 }
             }
@@ -371,6 +409,7 @@ namespace AICompanion.Services
                 else
                 {
                     // Space quickly re-centers character-mode framing.
+                    isTvGroupFraming = false;
                     orbitYaw = 180f;
                     orbitPitch = 10f;
                     zoomOffset = 0f;
@@ -391,18 +430,37 @@ namespace AICompanion.Services
                     SetPlayerVisible(false);
                 }
                 isFaceFocusMode = false;
-                // The selected pose can be much wider/deeper than the avatar's
-                // load pose. Capture it once on reset so the frame is stable
-                // while still fitting the current seated silhouette.
-                CacheStableFraming(targetGo);
-                targetFocusPos = targetGo.transform.TransformPoint(
-                    stableLocalFullBodyFocusPos);
-                targetHeight = stableFullBodyFocusHeight;
+                if (!exploreMode &&
+                    TryCacheTvGroupFraming(
+                        targetGo,
+                        false,
+                        out targetFocusPos,
+                        out targetHeight))
+                {
+                    isTvGroupFraming = true;
+                }
+                else
+                {
+                    isTvGroupFraming = false;
+                    // The selected pose can be much wider/deeper than the
+                    // avatar's load pose. Capture it once so the frame stays
+                    // stable while fitting the seated silhouette.
+                    CacheStableFraming(targetGo);
+                    targetFocusPos =
+                        targetGo.transform.TransformPoint(
+                            stableLocalFullBodyFocusPos);
+                    targetHeight =
+                        stableFullBodyFocusHeight;
+                }
                 ResetToFraming(
                     targetFocusPos,
                     targetHeight,
-                    -10f,
-                    GetFaceForwardYaw(targetGo));
+                    isTvGroupFraming ? -4f : -10f,
+                    isTvGroupFraming
+                        ? GetTvGroupYaw(
+                            targetGo,
+                            targetFocusPos)
+                        : GetFaceForwardYaw(targetGo));
                 focusPos = targetFocusPos;
                 isInteracting = true;
             }
@@ -411,6 +469,20 @@ namespace AICompanion.Services
                 Keyboard.current != null &&
                 Keyboard.current.fKey.wasPressedThisFrame)
             {
+                if (exploreMode)
+                {
+                    try
+                    {
+                        ServiceLocator
+                            .Resolve<IVRMService>()
+                            .FocusSelectedCharacterForConversation();
+                    }
+                    catch
+                    {
+                        // Camera framing still works before services finish
+                        // booting; conversation focus can wait.
+                    }
+                }
                 // Face reset.
                 exploreFollowingPlayer = false;
                 if (exploreMode)
@@ -418,14 +490,33 @@ namespace AICompanion.Services
                     SetPlayerVisible(false);
                 }
                 isFaceFocusMode = true;
-                targetFocusPos = targetGo.transform.TransformPoint(
-                    stableLocalFaceFocusPos);
-                targetHeight = stableFaceFocusHeight;
+                if (!exploreMode &&
+                    TryCacheTvGroupFraming(
+                        targetGo,
+                        true,
+                        out targetFocusPos,
+                        out targetHeight))
+                {
+                    isTvGroupFraming = true;
+                }
+                else
+                {
+                    isTvGroupFraming = false;
+                    targetFocusPos =
+                        targetGo.transform.TransformPoint(
+                            stableLocalFaceFocusPos);
+                    targetHeight =
+                        stableFaceFocusHeight;
+                }
                 ResetToFraming(
                     targetFocusPos,
                     targetHeight,
                     0f,
-                    GetFaceForwardYaw(targetGo));
+                    isTvGroupFraming
+                        ? GetTvGroupYaw(
+                            targetGo,
+                            targetFocusPos)
+                        : GetFaceForwardYaw(targetGo));
                 focusPos = targetFocusPos;
                 isInteracting = true;
             }
@@ -454,7 +545,8 @@ namespace AICompanion.Services
                 (smoothedFocusHeight / 2.0f) *
                 padding /
                 Mathf.Tan(radFov / 2.0f);
-            if (!isFaceFocusMode)
+            if (!isFaceFocusMode ||
+                isTvGroupFraming)
             {
                 baseDistance = Mathf.Max(
                     baseDistance,
@@ -462,17 +554,6 @@ namespace AICompanion.Services
                         targetGo,
                         focusPos,
                         targetOffsetDir));
-                if (!exploreMode &&
-                    companionCharacterPose != null &&
-                    playerAvatar != null)
-                {
-                    baseDistance = Mathf.Max(
-                        baseDistance,
-                        CalculateAvatarFitDistance(
-                            playerAvatar.gameObject,
-                            focusPos,
-                            targetOffsetDir));
-                }
             }
 
             // Calculate target distance after zoom
@@ -573,11 +654,138 @@ namespace AICompanion.Services
             }
 
             Ray ray = cam.ScreenPointToRay(pointerPosition);
-            return Physics.Raycast(ray, out RaycastHit hit) && hit.transform.IsChildOf(targetGo.transform);
+            return Physics.Raycast(
+                       ray,
+                       out RaycastHit hit,
+                       Mathf.Infinity,
+                       Physics.DefaultRaycastLayers,
+                       QueryTriggerInteraction.Collide) &&
+                   hit.transform.IsChildOf(
+                       targetGo.transform);
+        }
+
+        private bool IsPointerOverSelectableCharacter(
+            GameObject targetGo,
+            Vector2 pointerPosition)
+        {
+            if (cam == null)
+            {
+                return false;
+            }
+
+            Ray ray = cam.ScreenPointToRay(
+                pointerPosition);
+            if (!Physics.Raycast(
+                    ray,
+                    out RaycastHit hit,
+                    Mathf.Infinity,
+                    Physics.DefaultRaycastLayers,
+                    QueryTriggerInteraction.Collide))
+            {
+                return false;
+            }
+
+            if (targetGo != null &&
+                hit.transform.IsChildOf(
+                    targetGo.transform))
+            {
+                return true;
+            }
+
+            return hit.transform.GetComponentInParent<
+                       CharacterSelectionHighlight>() != null ||
+                   (playerAvatar != null &&
+                    hit.transform.IsChildOf(
+                        playerAvatar)) ||
+                   hit.transform.name.StartsWith(
+                       "WorldAvatarVRM_",
+                       System.StringComparison.OrdinalIgnoreCase);
+        }
+
+        private bool TryRaycastBlanket(
+            Vector2 pointerPosition,
+            out RaycastHit blanketHit)
+        {
+            blanketHit = default;
+            if (cam == null)
+            {
+                return false;
+            }
+
+            Ray ray = cam.ScreenPointToRay(pointerPosition);
+            if (!Physics.Raycast(ray, out RaycastHit hit))
+            {
+                return false;
+            }
+
+            Transform hitTransform = hit.transform;
+            if (hitTransform == null ||
+                hitTransform.name != "PicnicStage_Blanket")
+            {
+                return false;
+            }
+
+            blanketHit = hit;
+            return true;
+        }
+
+        private void SeatPlayerOnBlanket(RaycastHit blanketHit)
+        {
+            if (playerAvatar == null)
+            {
+                return;
+            }
+
+            Renderer blanketRenderer =
+                blanketHit.transform.GetComponent<Renderer>();
+            float surfaceY =
+                blanketRenderer != null
+                    ? blanketRenderer.bounds.max.y
+                    : blanketHit.point.y;
+
+            Vector3 seatPosition = blanketHit.point;
+            seatPosition.y = surfaceY;
+
+            GameObject companion = ResolveTrackedTarget();
+            Vector3 facingDirection =
+                companion != null
+                    ? companion.transform.position - seatPosition
+                    : -blanketHit.transform.forward;
+            facingDirection.y = 0f;
+            Quaternion seatRotation =
+                facingDirection.sqrMagnitude > 0.001f
+                    ? Quaternion.LookRotation(
+                        facingDirection.normalized,
+                        Vector3.up)
+                    : playerAvatar.rotation;
+
+            playerAvatar.SetPositionAndRotation(
+                seatPosition,
+                seatRotation);
+            playerLocomotion?.SetMotion(
+                0f,
+                false,
+                false);
+
+            playerSeatedPose =
+                playerAvatar.GetComponent<
+                    RuntimeHumanoidPosePlayer>();
+            if (playerSeatedPose == null)
+            {
+                playerSeatedPose =
+                    playerAvatar.gameObject.AddComponent<
+                        RuntimeHumanoidPosePlayer>();
+            }
+            playerSeatedPose.SetPoseActive(
+                true,
+                surfaceY);
+            exploreYaw = seatRotation.eulerAngles.y;
+            hasExplorePose = false;
         }
 
         private void CacheStableFraming(GameObject targetGo)
         {
+            isTvGroupFraming = false;
             Bounds bounds = new Bounds(targetGo.transform.position, Vector3.zero);
             Renderer[] renderers = targetGo.GetComponentsInChildren<Renderer>();
             bool hasBounds = false;
@@ -657,6 +865,148 @@ namespace AICompanion.Services
             focusVelocity = Vector3.zero;
         }
 
+        private bool TryCacheTvGroupFraming(
+            GameObject companion,
+            bool tight,
+            out Vector3 focusPosition,
+            out float focusHeight)
+        {
+            focusPosition = Vector3.zero;
+            focusHeight = 1.8f;
+            if (companion == null ||
+                playerAvatar == null ||
+                !playerAvatar.gameObject.activeInHierarchy)
+            {
+                return false;
+            }
+
+            Bounds groupBounds = default;
+            bool hasBounds = false;
+            EncapsulateVisibleAvatarBounds(
+                companion,
+                ref groupBounds,
+                ref hasBounds);
+            EncapsulateVisibleAvatarBounds(
+                playerAvatar.gameObject,
+                ref groupBounds,
+                ref hasBounds);
+            if (!hasBounds)
+            {
+                return false;
+            }
+
+            if (tight)
+            {
+                Vector3 min = groupBounds.min;
+                Vector3 max = groupBounds.max;
+                min.y =
+                    Mathf.Lerp(
+                        min.y,
+                        max.y,
+                        0.4f);
+                groupBounds.SetMinMax(
+                    min,
+                    max);
+            }
+
+            focusPosition =
+                groupBounds.center;
+            focusHeight =
+                Mathf.Max(
+                    groupBounds.size.y *
+                    (tight ? 1.12f : fullBodyFramingScale),
+                    tight ? 0.8f : 1.2f);
+            tvGroupFocusPosition =
+                focusPosition;
+            tvGroupFocusHeight =
+                focusHeight;
+            tvGroupBoundsCorners =
+                GetBoundsCorners(groupBounds);
+            return true;
+        }
+
+        private static void EncapsulateVisibleAvatarBounds(
+            GameObject avatar,
+            ref Bounds bounds,
+            ref bool hasBounds)
+        {
+            if (avatar == null)
+            {
+                return;
+            }
+
+            foreach (Renderer renderer in
+                avatar.GetComponentsInChildren<Renderer>(
+                    false))
+            {
+                if (renderer == null ||
+                    !renderer.enabled ||
+                    renderer.transform.name.EndsWith(
+                        "_SelectionOutline",
+                        System.StringComparison.Ordinal) ||
+                    renderer.bounds.size.sqrMagnitude <
+                    0.0025f)
+                {
+                    continue;
+                }
+
+                if (!hasBounds)
+                {
+                    bounds = renderer.bounds;
+                    hasBounds = true;
+                }
+                else
+                {
+                    bounds.Encapsulate(
+                        renderer.bounds);
+                }
+            }
+        }
+
+        private float GetTvGroupYaw(
+            GameObject companion,
+            Vector3 focusPosition)
+        {
+            if (companion == null ||
+                playerAvatar == null)
+            {
+                return orbitYaw;
+            }
+
+            Vector3 separation =
+                playerAvatar.position -
+                companion.transform.position;
+            separation.y = 0f;
+            if (separation.sqrMagnitude <
+                0.0025f)
+            {
+                return GetFaceForwardYaw(
+                    companion);
+            }
+
+            Vector3 cameraSide =
+                Vector3.Cross(
+                    Vector3.up,
+                    separation.normalized);
+            Vector3 currentSide =
+                transform.position -
+                focusPosition;
+            currentSide.y = 0f;
+            if (currentSide.sqrMagnitude >
+                    0.0025f &&
+                Vector3.Dot(
+                    cameraSide,
+                    currentSide.normalized) < 0f)
+            {
+                cameraSide = -cameraSide;
+            }
+
+            return Mathf.Atan2(
+                cameraSide.x,
+                cameraSide.z) *
+                Mathf.Rad2Deg;
+        }
+
         public void SetZoomInSlider(float normalizedValue)
         {
             sliderZoomInValue = Mathf.Clamp01(normalizedValue);
@@ -706,6 +1056,18 @@ namespace AICompanion.Services
             float orbitInput = 0f;
             if (Keyboard.current.aKey.isPressed) orbitInput -= 1f;
             if (Keyboard.current.dKey.isPressed) orbitInput += 1f;
+            bool commandHeld =
+                Keyboard.current.leftCommandKey.isPressed ||
+                Keyboard.current.rightCommandKey.isPressed;
+            if (!commandHeld &&
+                Keyboard.current.zKey.isPressed)
+            {
+                orbitInput -= 1f;
+            }
+            if (Keyboard.current.cKey.isPressed)
+            {
+                orbitInput += 1f;
+            }
             orbitYaw +=
                 orbitInput *
                 keyboardOrbitSpeed *
@@ -818,6 +1180,18 @@ namespace AICompanion.Services
 
             if (worldMove.sqrMagnitude > 0f)
             {
+                RuntimeHumanoidPosePlayer activePlayerPose =
+                    playerSeatedPose != null
+                        ? playerSeatedPose
+                        : playerAvatar.GetComponent<
+                            RuntimeHumanoidPosePlayer>();
+                if (activePlayerPose != null)
+                {
+                    activePlayerPose.SetPoseActive(
+                        false,
+                        playerAvatar.position.y);
+                }
+
                 float speed = moveSpeed *
                     (sprinting
                         ? sprintMultiplier
@@ -840,33 +1214,38 @@ namespace AICompanion.Services
                 sprinting,
                 playerPosition.y > 0.05f);
 
-            if (horizontalMove.sqrMagnitude > 0.001f)
-            {
-                Quaternion targetRotation =
-                    Quaternion.LookRotation(
-                        horizontalMove.normalized,
-                        Vector3.up);
-                playerAvatar.rotation = Quaternion.Slerp(
-                    playerAvatar.rotation,
-                    targetRotation,
-                    Time.deltaTime * playerTurnSpeed);
-            }
-
-            Vector3 pivot =
-                playerAvatar.TransformPoint(
-                    playerLocalCameraPivot);
             Quaternion cameraRotation =
                 Quaternion.Euler(
                     explorePitch,
                     exploreYaw,
                     0f);
+            Quaternion bodyRotation =
+                Quaternion.Euler(0f, exploreYaw, 0f);
+            playerAvatar.rotation = Quaternion.Slerp(
+                playerAvatar.rotation,
+                bodyRotation,
+                Time.deltaTime * playerTurnSpeed);
+
+            bool showingBody =
+                explorePitch >= PovBodyRevealPitch;
+            Vector3 pivot =
+                GetLivePlayerEyePivot(bodyRotation);
             explorePosition = ClampAboveGround(
-                pivot -
-                cameraRotation * Vector3.forward *
-                playerCameraDistance);
+                pivot +
+                cameraRotation *
+                Vector3.forward *
+                povLeanDistance);
             transform.SetPositionAndRotation(
                 explorePosition,
                 cameraRotation);
+            SetPlayerRenderersVisible(showingBody);
+            if (cam != null)
+            {
+                cam.nearClipPlane =
+                    showingBody
+                        ? PovBodyNearClipPlane
+                        : PovNearClipPlane;
+            }
             currentTargetCamPos = explorePosition;
             isInitialized = true;
         }
@@ -894,21 +1273,40 @@ namespace AICompanion.Services
         public void SetExploreMode(bool enabled)
         {
             exploreMode = enabled;
+            isTvGroupFraming = false;
             if (!exploreMode)
             {
                 SetPlayerVisible(true);
-                hasPlacedCharacterPair = false;
+                SetPlayerRenderersVisible(true);
+                if (cam != null)
+                {
+                    cam.nearClipPlane = characterNearClipPlane;
+                }
                 hasManualFocus = false;
                 sceneOffset = Vector3.zero;
                 focusVelocity = Vector3.zero;
             }
             else
             {
-                SetCharacterPoseActive(false);
                 hasManualFocus = false;
                 exploreFollowingPlayer = true;
                 SetPlayerVisible(true);
-                CaptureExplorePose();
+                SetPlayerRenderersVisible(false);
+                if (cam != null)
+                {
+                    cam.nearClipPlane = PovNearClipPlane;
+                }
+                if (playerAvatar != null)
+                {
+                    exploreYaw =
+                        playerAvatar.eulerAngles.y;
+                    explorePitch = 0f;
+                    hasExplorePose = true;
+                }
+                else
+                {
+                    CaptureExplorePose();
+                }
             }
         }
 
@@ -923,12 +1321,14 @@ namespace AICompanion.Services
                     playerAvatar.gameObject.AddComponent<
                         PlayerLocomotionAnimator>();
             }
-            playerCharacterPose =
-                GetOrAddCharacterPose(playerAvatar.gameObject);
             exploreFollowingPlayer = true;
             CachePlayerCameraPivot();
             SetPlayerVisible(true);
-            hasPlacedCharacterPair = false;
+            SetPlayerRenderersVisible(!exploreMode);
+            if (cam != null && exploreMode)
+            {
+                cam.nearClipPlane = PovNearClipPlane;
+            }
         }
 
         private void UpdateCharacterInteraction(
@@ -936,7 +1336,6 @@ namespace AICompanion.Services
         {
             if (exploreMode)
             {
-                SetCharacterPoseActive(false);
                 return;
             }
 
@@ -947,23 +1346,9 @@ namespace AICompanion.Services
                 return;
             }
 
-            companionCharacterPose =
-                GetOrAddCharacterPose(targetGo);
-            if (playerCharacterPose == null ||
-                companionCharacterPose == null)
-            {
-                SetCharacterPoseActive(false);
-                hasPlacedCharacterPair = false;
-                characterPoseTarget = null;
-                return;
-            }
-
-            if (!hasPlacedCharacterPair ||
-                characterPoseTarget != targetGo)
-            {
-                PlaceCharacterPairOnBlanket(targetGo);
-            }
-            SetCharacterPoseActive(true);
+            // Character/POV mode embodies the already-loaded Jojo4 avatar
+            // at its current (and saveable) world transform. Posing a scene
+            // character must never relocate or replace the player avatar.
 
             Vector3 playerToCompanion =
                 targetGo.transform.position -
@@ -1008,73 +1393,6 @@ namespace AICompanion.Services
                 false);
         }
 
-        private void PlaceCharacterPairOnBlanket(
-            GameObject targetGo)
-        {
-            GameObject blanket =
-                GameObject.Find("PicnicStage_Blanket");
-            Transform blanketTransform =
-                blanket != null ? blanket.transform : null;
-            Vector3 center =
-                blanketTransform != null
-                    ? blanketTransform.position
-                    : new Vector3(0f, 0.01f, 2f);
-            Vector3 across =
-                blanketTransform != null
-                    ? blanketTransform.right.normalized
-                    : Vector3.right;
-            characterBlanketSurfaceY = center.y + 0.01f;
-
-            Vector3 companionPosition =
-                center - across * 0.58f;
-            Vector3 playerPosition =
-                center + across * 0.58f;
-            companionPosition.y = characterBlanketSurfaceY;
-            playerPosition.y = characterBlanketSurfaceY;
-
-            targetGo.transform.SetPositionAndRotation(
-                companionPosition,
-                Quaternion.LookRotation(across, Vector3.up));
-            playerAvatar.SetPositionAndRotation(
-                playerPosition,
-                Quaternion.LookRotation(-across, Vector3.up));
-
-            characterPoseTarget = targetGo;
-            hasPlacedCharacterPair = true;
-            framedTarget = null;
-            zoomOffset = 0f;
-            sceneOffset = Vector3.zero;
-            hasManualFocus = false;
-            focusVelocity = Vector3.zero;
-            snapCameraThisFrame = true;
-        }
-
-        private void SetCharacterPoseActive(bool active)
-        {
-            playerCharacterPose?.SetPoseActive(
-                active,
-                characterBlanketSurfaceY);
-            companionCharacterPose?.SetPoseActive(
-                active,
-                characterBlanketSurfaceY);
-        }
-
-        private static RuntimeHumanoidPosePlayer
-            GetOrAddCharacterPose(GameObject avatar)
-        {
-            Animator animator = avatar.GetComponent<Animator>();
-            if (animator == null || !animator.isHuman)
-            {
-                return null;
-            }
-
-            RuntimeHumanoidPosePlayer pose =
-                avatar.GetComponent<RuntimeHumanoidPosePlayer>();
-            return pose != null
-                ? pose
-                : avatar.AddComponent<RuntimeHumanoidPosePlayer>();
-        }
-
         public bool TryGetPlayerTransform(
             out Vector3 position,
             out Quaternion rotation)
@@ -1115,6 +1433,71 @@ namespace AICompanion.Services
             }
         }
 
+        private void SetPlayerRenderersVisible(bool visible)
+        {
+            if (playerAvatar == null ||
+                playerRenderersVisible == visible)
+            {
+                return;
+            }
+
+            Renderer[] renderers =
+                playerAvatar.GetComponentsInChildren<Renderer>(true);
+            foreach (Renderer renderer in renderers)
+            {
+                if (renderer != null)
+                {
+                    renderer.enabled = visible;
+                }
+            }
+            playerRenderersVisible = visible;
+        }
+
+        private Vector3 GetLivePlayerEyePivot(
+            Quaternion bodyRotation)
+        {
+            if (playerAvatar == null)
+            {
+                return transform.position;
+            }
+
+            Animator animator =
+                playerAvatar.GetComponent<Animator>();
+            if (animator != null && animator.isHuman)
+            {
+                Transform leftEye =
+                    animator.GetBoneTransform(
+                        HumanBodyBones.LeftEye);
+                Transform rightEye =
+                    animator.GetBoneTransform(
+                        HumanBodyBones.RightEye);
+                if (leftEye != null && rightEye != null)
+                {
+                    return Vector3.Lerp(
+                               leftEye.position,
+                               rightEye.position,
+                               0.5f) +
+                           bodyRotation *
+                           Vector3.forward *
+                           PovEyeForwardOffset;
+                }
+
+                Transform head =
+                    animator.GetBoneTransform(
+                        HumanBodyBones.Head);
+                if (head != null)
+                {
+                    return head.position +
+                           Vector3.up * 0.08f +
+                           bodyRotation *
+                           Vector3.forward * 0.08f;
+                }
+            }
+
+            return playerAvatar.TransformPoint(
+                playerLocalCameraPivot);
+        }
+
         private void CachePlayerCameraPivot()
         {
             if (playerAvatar == null)
@@ -1126,20 +1509,14 @@ namespace AICompanion.Services
                 playerAvatar.GetComponent<Animator>();
             if (animator != null && animator.isHuman)
             {
-                Transform hips =
-                    animator.GetBoneTransform(
-                        HumanBodyBones.Hips);
                 Transform head =
                     animator.GetBoneTransform(
                         HumanBodyBones.Head);
-                if (hips != null && head != null)
+                if (head != null)
                 {
-                    Vector3 pivot = Vector3.Lerp(
-                        hips.position,
-                        head.position,
-                        0.65f);
                     playerLocalCameraPivot =
-                        playerAvatar.InverseTransformPoint(pivot);
+                        playerAvatar.InverseTransformPoint(
+                            head.position);
                     return;
                 }
             }
@@ -1255,9 +1632,13 @@ namespace AICompanion.Services
             Vector3 focusPosition,
             Vector3 cameraOffsetDirection)
         {
+            Vector3[] framingCorners =
+                isTvGroupFraming
+                    ? tvGroupBoundsCorners
+                    : stableLocalFullBodyBoundsCorners;
             if (cam == null ||
-                stableLocalFullBodyBoundsCorners == null ||
-                stableLocalFullBodyBoundsCorners.Length == 0)
+                framingCorners == null ||
+                framingCorners.Length == 0)
             {
                 return minCameraDistance;
             }
@@ -1273,10 +1654,13 @@ namespace AICompanion.Services
                 verticalTangent * Mathf.Max(cam.aspect, 0.1f);
             float requiredDistance = minCameraDistance;
 
-            foreach (Vector3 localCorner in stableLocalFullBodyBoundsCorners)
+            foreach (Vector3 framingCorner in framingCorners)
             {
                 Vector3 worldCorner =
-                    targetGo.transform.TransformPoint(localCorner);
+                    isTvGroupFraming
+                        ? framingCorner
+                        : targetGo.transform.TransformPoint(
+                            framingCorner);
                 Vector3 viewRelative =
                     inverseViewRotation *
                     (worldCorner - focusPosition);

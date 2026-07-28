@@ -11,6 +11,12 @@ namespace AICompanion.Core
 {
     public class CompanionController : MonoBehaviour
     {
+        private sealed class DialogueTurn
+        {
+            public string speaker;
+            public string text;
+        }
+
         [Header("UI Reference")]
         [SerializeField] private CompanionUI companionUI;
 
@@ -30,12 +36,24 @@ namespace AICompanion.Core
         private Coroutine voiceGenerationCoroutine;
         private Coroutine thinkingReactionCoroutine;
         private Coroutine autosaveCoroutine;
+        private Coroutine worldPulseCoroutine;
         private int requestGeneration;
         private CompanionCamera companionCamera;
+        private bool startupGreetingStarted;
+        private readonly List<string>
+            activeSpeakingCharacters =
+                new List<string>();
         private const float AutosaveIntervalSeconds = 60f;
+        private const float WorldPulseIntervalSeconds = 120f;
 
         private void Awake()
         {
+            // World-space speech bubbles and outline passes can let the Game
+            // view render far beyond the display refresh rate. Use a hard cap
+            // rather than v-sync so ProMotion/120 Hz displays are capped too.
+            QualitySettings.vSyncCount = 0;
+            Application.targetFrameRate = 30;
+
             // 1. Create and configure required services
             GameObject serviceContainer = new GameObject("ServiceContainer");
             serviceContainer.transform.SetParent(transform);
@@ -56,7 +74,12 @@ namespace AICompanion.Core
             // 2. Setup Audio Source for speech playback
             audioSource = gameObject.AddComponent<AudioSource>();
             audioSource.playOnAwake = false;
+            audioSource.loop = false;
             audioSource.spatialBlend = 0f; // 2D flat stereo playback for maximum clarity
+            audioSource.dopplerLevel = 0f;
+            audioSource.bypassEffects = true;
+            audioSource.bypassListenerEffects = true;
+            audioSource.bypassReverbZones = true;
             gameObject.AddComponent<AudioLipsyncAnalyzer>();
         }
 
@@ -81,14 +104,24 @@ namespace AICompanion.Core
             companionUI.OnMicToggleChanged += HandleMicToggle;
             companionUI.OnExploreModeToggleChanged +=
                 HandleExploreModeToggle;
+            companionUI.OnSpeechBubbleToggleChanged +=
+                HandleSpeechBubbleToggle;
             companionUI.OnCyclePoseRequested += HandleCyclePose;
             companionUI.OnPoseSelected += HandlePoseSelected;
             companionUI.OnZoomInSliderChanged += HandleZoomInSliderChanged;
             companionUI.OnZoomOutSliderChanged += HandleZoomOutSliderChanged;
             companionUI.OnSaveFrameRequested += SaveCurrentFrame;
             companionUI.OnLoadFrameRequested += LoadSavedFrame;
+            companionUI.OnSatellitePhoneOpened +=
+                RefreshSatellitePhone;
+            companionUI.OnSatelliteCalled +=
+                HandleSatelliteCalled;
+            companionUI.OnWhistleRequested +=
+                HandleWhistleRequested;
             companionCamera = Camera.main != null ? Camera.main.GetComponent<CompanionCamera>() : null;
             LoadPlayerAvatar();
+            vrmService?.SetSpeechBubblesVisible(true);
+            RefreshSatellitePhone();
 
             // Populate Pose Dropdown
             if (vrmService != null)
@@ -102,15 +135,9 @@ namespace AICompanion.Core
                 companionUI.PopulatePoseDropdown(availablePoses);
 
                 // Sync initial pose if VRM is already loaded
-                ServiceConfig config = ServiceConfig.Load();
-                if (config != null && config.hasSavedFrame && !string.IsNullOrEmpty(config.savedPoseName))
-                {
-                    selectedPoseIndex = GetPoseIndexByName(config.savedPoseName);
-                }
-                else
-                {
-                    selectedPoseIndex = GetPoseIndexByName("Feet Focus");
-                }
+                selectedPoseIndex =
+                    GetPoseIndexByName(
+                        "feets to the side sit");
 
                 if (selectedPoseIndex != -1)
                 {
@@ -119,7 +146,8 @@ namespace AICompanion.Core
 
                 if (availablePoses.Count == 0)
                 {
-                    companionUI.AppendLog("System", "No poses found in Assets/OptionalContent/Solo Scenes.");
+                    Debug.LogWarning(
+                        "[CompanionController] No character poses were found.");
                 }
                 else
                 {
@@ -137,6 +165,8 @@ namespace AICompanion.Core
 
             autosaveCoroutine =
                 StartCoroutine(AutosaveRoutine());
+            worldPulseCoroutine =
+                StartCoroutine(WorldPulseRoutine());
         }
 
         private void HandleCyclePose()
@@ -148,7 +178,8 @@ namespace AICompanion.Core
 
             if (availablePoses.Count == 0)
             {
-                companionUI.AppendLog("System", "No poses available.");
+                Debug.LogWarning(
+                    "[CompanionController] No poses are available.");
                 return;
             }
 
@@ -192,7 +223,8 @@ namespace AICompanion.Core
 
             if (availablePoses.Count == 0)
             {
-                companionUI.AppendLog("System", "No poses available.");
+                Debug.LogWarning(
+                    "[CompanionController] No poses are available.");
                 return;
             }
 
@@ -212,8 +244,56 @@ namespace AICompanion.Core
             }
         }
 
+        private void HandleSpeechBubbleToggle(
+            bool enabled)
+        {
+            vrmService?.SetSpeechBubblesVisible(
+                enabled);
+        }
+
+        private void RefreshSatellitePhone()
+        {
+            companionUI?.PopulateSatellitePhone(
+                vrmService?.GetAvailableSatellites());
+        }
+
+        private void HandleSatelliteCalled(
+            string satelliteId)
+        {
+            if (vrmService != null &&
+                vrmService.CallSatellite(
+                    satelliteId))
+            {
+                companionUI.AppendLog(
+                    "System",
+                    $"{satelliteId} joined Stella.");
+                return;
+            }
+
+            companionUI.AppendLog(
+                "System",
+                $"{satelliteId} is not available yet.");
+        }
+
+        private void HandleWhistleRequested()
+        {
+            vrmService?.WhistleForCamera();
+        }
+
         private void Update()
         {
+            UnityEngine.InputSystem.Keyboard keyboard =
+                UnityEngine.InputSystem.Keyboard.current;
+            if (keyboard != null &&
+                (companionUI == null ||
+                 !companionUI.IsInputFocused) &&
+                keyboard.zKey.wasPressedThisFrame &&
+                (keyboard.leftCommandKey.isPressed ||
+                 keyboard.rightCommandKey.isPressed))
+            {
+                vrmService?.UndoLastPlacement();
+            }
+
             // Update preview feeds at 5 FPS to avoid performance impact
             if (Time.frameCount % 12 == 0)
             {
@@ -285,6 +365,7 @@ namespace AICompanion.Core
 
         private void HandleUserMessage(string message)
         {
+            vrmService?.SetCameraAttentionLocked(false);
             requestGeneration++;
             int currentRequestGeneration =
                 requestGeneration;
@@ -303,12 +384,22 @@ namespace AICompanion.Core
             if (isSpeaking)
             {
                 audioSource.Stop();
+                ReleaseSpeechClip();
                 isSpeaking = false;
                 vrmService.SetSpeaking(false);
+                HideActiveCharacterSpeech();
                 vrmService.SetExpression("neutral", 1.0f);
+                RestoreMicrophoneAfterSpeech();
             }
 
             companionUI.AppendLog("You", message);
+
+            CompanionMemoryService.Instance
+                .SetConversationContext(
+                    vrmService
+                        ?.GetPrimaryConversationCharacter(),
+                    vrmService
+                        ?.GetConversationCharactersInFrame());
 
             // Get current active frames if toggled on
             Texture2D webcamFrame = useWebcamContext ? contextService.GetCameraFrame() : null;
@@ -407,7 +498,8 @@ namespace AICompanion.Core
 
         private void SpeakText(
             string text,
-            int currentRequestGeneration)
+            int currentRequestGeneration,
+            bool releaseCameraLockWhenDone = false)
         {
             if (IsNonSpokenStatusText(text))
             {
@@ -420,61 +512,241 @@ namespace AICompanion.Core
             Debug.Log(
                 "[CompanionController] AI response ready: " +
                 text);
-
-            voiceGenerationCoroutine =
+            List<DialogueTurn> turns =
+                ParseDialogueTurns(
+                    text,
+                    GetChatSpeakerLabel(
+                        vrmService
+                            ?.GetPrimaryConversationCharacter()));
+            if (speechLifecycleCoroutine != null)
+            {
+                StopCoroutine(speechLifecycleCoroutine);
+            }
+            speechLifecycleCoroutine =
                 StartCoroutine(
-                    voiceService.GenerateSpeechCoroutine(
-                text,
-                onComplete: (clip) =>
-                {
-                    voiceGenerationCoroutine = null;
-                    if (currentRequestGeneration !=
-                        requestGeneration)
-                    {
-                        return;
-                    }
-                    isSpeaking = true;
-                    vrmService.SetSpeaking(true);
-                    audioSource.clip = clip;
-                    audioSource.Play();
-                    companionUI.StartAISpeechTyping(
-                        text,
-                        clip.length);
-                    if (speechLifecycleCoroutine != null)
-                    {
-                        StopCoroutine(speechLifecycleCoroutine);
-                    }
-                    speechLifecycleCoroutine = StartCoroutine(TrackSpeechLifecycle(text));
-                },
-                onError: (error) =>
-                {
-                    voiceGenerationCoroutine = null;
-                    if (currentRequestGeneration !=
-                        requestGeneration)
-                    {
-                        return;
-                    }
-                    companionUI.AppendLog("System", $"Speech Generation Failed: {error}");
-                    companionUI.AppendLog("AI", text);
-                    isSpeaking = false;
-                    vrmService.SetSpeaking(false);
-                    vrmService.SetExpression("neutral", 1.0f);
-                }
-            ));
+                    SpeakDialogueSequence(
+                        turns,
+                        currentRequestGeneration,
+                        releaseCameraLockWhenDone));
         }
 
-        private IEnumerator TrackSpeechLifecycle(string finalText)
+        private IEnumerator SpeakDialogueSequence(
+            List<DialogueTurn> turns,
+            int currentRequestGeneration,
+            bool releaseCameraLockWhenDone)
         {
-            while (audioSource != null && audioSource.isPlaying)
+            foreach (DialogueTurn turn in turns)
             {
-                yield return null;
+                if (currentRequestGeneration !=
+                    requestGeneration)
+                {
+                    break;
+                }
+
+                companionUI.AppendLog(
+                    turn.speaker,
+                    turn.text);
+
+                AudioClip generatedClip = null;
+                string generationError = null;
+                voiceGenerationCoroutine =
+                    StartCoroutine(
+                        voiceService.GenerateSpeechCoroutine(
+                            turn.speaker,
+                            turn.text,
+                            onComplete: clip =>
+                                generatedClip = clip,
+                            onError: error =>
+                                generationError = error));
+                yield return voiceGenerationCoroutine;
+                voiceGenerationCoroutine = null;
+
+                if (currentRequestGeneration !=
+                    requestGeneration)
+                {
+                    if (generatedClip != null)
+                    {
+                        Destroy(generatedClip);
+                    }
+                    break;
+                }
+
+                if (generatedClip == null)
+                {
+                    companionUI.AppendLog(
+                        "System",
+                        "Speech Generation Failed: " +
+                        generationError);
+                    continue;
+                }
+
+                activeSpeakingCharacters.Clear();
+                activeSpeakingCharacters.Add(
+                    turn.speaker);
+                vrmService.SetCharacterSpeech(
+                    turn.speaker,
+                    turn.text,
+                    true);
+                sttService?.SetListeningEnabled(false);
+                vrmService.SetSpeaking(true);
+                audioSource.clip = generatedClip;
+                audioSource.Play();
+                isSpeaking = true;
+
+                while (audioSource != null &&
+                       audioSource.isPlaying &&
+                       currentRequestGeneration ==
+                           requestGeneration)
+                {
+                    yield return null;
+                }
+
+                if (audioSource != null)
+                {
+                    audioSource.Stop();
+                }
+                isSpeaking = false;
+                vrmService.SetSpeaking(false);
+                HideActiveCharacterSpeech();
+                ReleaseSpeechClip();
+                RestoreMicrophoneAfterSpeech();
+
+                if (currentRequestGeneration ==
+                    requestGeneration)
+                {
+                    yield return new WaitForSecondsRealtime(
+                        0.12f);
+                }
             }
 
             isSpeaking = false;
             vrmService.SetSpeaking(false);
             vrmService.SetExpression("neutral", 1.0f);
-            companionUI.CompleteAISpeechTyping(finalText);
+            HideActiveCharacterSpeech();
+            ReleaseSpeechClip();
+            RestoreMicrophoneAfterSpeech();
+            if (releaseCameraLockWhenDone)
+            {
+                vrmService?.SetCameraAttentionLocked(
+                    false);
+            }
             speechLifecycleCoroutine = null;
+        }
+
+        private void HideActiveCharacterSpeech()
+        {
+            foreach (string speaker in
+                activeSpeakingCharacters)
+            {
+                vrmService?.SetCharacterSpeech(
+                    speaker,
+                    string.Empty,
+                    false);
+            }
+            activeSpeakingCharacters.Clear();
+        }
+
+        private static List<DialogueTurn>
+            ParseDialogueTurns(
+                string response,
+                string fallbackSpeaker)
+        {
+            List<DialogueTurn> turns =
+                new List<DialogueTurn>();
+            string[] lines =
+                (response ?? string.Empty).Split(
+                    new[] { '\n' },
+                    StringSplitOptions
+                        .RemoveEmptyEntries);
+            foreach (string rawLine in lines)
+            {
+                string line = rawLine.Trim();
+                int separator =
+                    line.IndexOf(':');
+                if (separator <= 0)
+                {
+                    continue;
+                }
+                string speaker =
+                    line.Substring(
+                            0,
+                            separator)
+                        .Trim()
+                        .Trim(
+                            '[', ']',
+                            '*', '#',
+                            ' ');
+                string dialogue =
+                    line.Substring(
+                            separator + 1)
+                        .Trim();
+                if (speaker.Length == 0 ||
+                    dialogue.Length == 0)
+                {
+                    continue;
+                }
+                turns.Add(
+                    new DialogueTurn
+                    {
+                        speaker = speaker,
+                        text = dialogue
+                    });
+            }
+
+            if (turns.Count == 0)
+            {
+                turns.Add(
+                    new DialogueTurn
+                    {
+                        speaker =
+                            string.IsNullOrWhiteSpace(
+                                fallbackSpeaker)
+                                ? "charmy"
+                                : fallbackSpeaker,
+                        text =
+                            string.IsNullOrWhiteSpace(
+                                response)
+                                ? "..."
+                                : response.Trim()
+                    });
+            }
+            return turns;
+        }
+
+        private static string GetChatSpeakerLabel(
+            string characterId)
+        {
+            if (string.IsNullOrWhiteSpace(
+                    characterId))
+            {
+                return "charmy";
+            }
+            return characterId
+                .Trim()
+                .ToLowerInvariant()
+                .Replace("_jarvis", string.Empty)
+                .Replace(" jarvis", string.Empty);
+        }
+
+        private void RestoreMicrophoneAfterSpeech()
+        {
+            sttService?.SetListeningEnabled(
+                companionUI != null &&
+                companionUI.IsMicEnabled);
+        }
+
+        private void ReleaseSpeechClip()
+        {
+            if (audioSource == null ||
+                audioSource.clip == null)
+            {
+                return;
+            }
+
+            AudioClip finishedClip =
+                audioSource.clip;
+            audioSource.clip = null;
+            Destroy(finishedClip);
         }
 
         private void TriggerExpressionFromText(string text)
@@ -593,9 +865,10 @@ namespace AICompanion.Core
 
                     companionCamera?.SetPlayerAvatar(
                         player.transform);
-                    companionUI?.AppendLog(
-                        "System",
-                        "Jojo4 self-insert loaded for Explore Mode.");
+                    LoadSpikeSatellite();
+                    Debug.Log(
+                        "[CompanionController] Jojo4 self-insert " +
+                        "loaded for POV Mode.");
                 },
                 onError: error =>
                 {
@@ -603,6 +876,285 @@ namespace AICompanion.Core
                         "System",
                         $"Player avatar load error: {error}");
                 });
+        }
+
+        private void LoadSpikeSatellite()
+        {
+            string spikePath =
+                Path.Combine(
+                    Application.dataPath,
+                    "Characters",
+                    "spike.vrm");
+            if (!File.Exists(spikePath))
+            {
+                Debug.LogWarning(
+                    "[CompanionController] Spike VRM not found: " +
+                    spikePath);
+                BeginStartupGreeting();
+                return;
+            }
+
+            vrmService.LoadWorldVRM(
+                "spike",
+                spikePath,
+                new Vector3(0f, 0.02f, 2f),
+                Quaternion.identity,
+                onLoaded: spike =>
+                {
+                    RefreshSatellitePhone();
+                    BeginStartupGreeting();
+                    Debug.Log(
+                        "[CompanionController] Spike satellite loaded.");
+                },
+                onError: error =>
+                {
+                    companionUI?.AppendLog(
+                        "System",
+                        "Spike avatar load error: " +
+                        error);
+                    BeginStartupGreeting();
+                });
+        }
+
+        private void BeginStartupGreeting()
+        {
+            if (startupGreetingStarted)
+            {
+                return;
+            }
+            startupGreetingStarted = true;
+            vrmService?.SetCameraAttentionLocked(
+                true);
+            vrmService?.WhistleForCamera();
+            StartCoroutine(
+                StartupGreetingRoutine());
+        }
+
+        private IEnumerator StartupGreetingRoutine()
+        {
+            // Let the imported poses settle onto the blanket before the
+            // characters begin their first conversational turn.
+            yield return new WaitForSecondsRealtime(
+                0.75f);
+
+            List<string> startupCast =
+                new List<string>
+                {
+                    "charmy",
+                    "jojo"
+                };
+            List<string> satellites =
+                vrmService?.GetAvailableSatellites();
+            if (satellites != null)
+            {
+                foreach (string satellite in
+                    satellites)
+                {
+                    if (!startupCast.Exists(
+                            character =>
+                                character.Equals(
+                                    satellite,
+                                    StringComparison
+                                        .OrdinalIgnoreCase)))
+                    {
+                        startupCast.Add(
+                            satellite);
+                    }
+                }
+            }
+            if (!startupCast.Exists(
+                    character =>
+                        character.Equals(
+                            "spike",
+                            StringComparison
+                                .OrdinalIgnoreCase)))
+            {
+                startupCast.Add("spike");
+            }
+
+            CompanionMemoryService.Instance
+                .SetConversationContext(
+                    null,
+                    startupCast);
+
+            int greetingGeneration =
+                ++requestGeneration;
+            const string greetingDirection =
+                "startup scene direction: charmy, jojo, and spike " +
+                "must each greet me in their own voice. after greeting " +
+                "me, let them exchange one brief, natural reaction with " +
+                "each other. output only their labeled spoken turns.";
+            yield return llmService.SendDirectiveCoroutine(
+                greetingDirection,
+                onComplete: aiText =>
+                {
+                    if (greetingGeneration !=
+                        requestGeneration)
+                    {
+                        return;
+                    }
+                    TriggerExpressionFromText(aiText);
+                    SpeakText(
+                        aiText,
+                        greetingGeneration,
+                        true);
+                },
+                onError: error =>
+                {
+                    if (greetingGeneration ==
+                        requestGeneration)
+                    {
+                        companionUI?.AppendLog(
+                            "System",
+                            "Startup greeting failed: " +
+                            error);
+                        vrmService
+                            ?.SetCameraAttentionLocked(
+                                false);
+                    }
+                });
+        }
+
+        private IEnumerator WorldPulseRoutine()
+        {
+            WaitForSecondsRealtime interval =
+                new WaitForSecondsRealtime(
+                    WorldPulseIntervalSeconds);
+            while (true)
+            {
+                yield return interval;
+                if (llmService == null ||
+                    vrmService == null ||
+                    isSpeaking ||
+                    voiceGenerationCoroutine != null ||
+                    speechLifecycleCoroutine != null ||
+                    thinkingReactionCoroutine != null)
+                {
+                    continue;
+                }
+
+                List<string> cast =
+                    new List<string>
+                    {
+                        "charmy",
+                        "jojo"
+                    };
+                List<string> satellites =
+                    vrmService.GetAvailableSatellites();
+                if (satellites != null)
+                {
+                    cast.AddRange(satellites);
+                }
+                CompanionMemoryService.Instance
+                    .SetConversationContext(
+                        null,
+                        cast);
+
+                string state =
+                    vrmService.GetWorldStateSummary();
+                string allowedPoses =
+                    string.Join(
+                        ", ",
+                        availablePoses);
+                string directive =
+                    "silent world pulse. use this compact scene reference:\n" +
+                    state +
+                    "\navailable exact pose names: " +
+                    allowedPoses +
+                    "\nfor charmy, jojo, and spike, return one line each " +
+                    "as name: pose=<exact pose>; " +
+                    "place=<where they want to go or stay>; " +
+                    "friend=<character or none>; wish=<short item or " +
+                    "addition they want>; idea=<short next idea>. " +
+                    "choose independently according to each constitution. " +
+                    "do not greet me and do not add narration.";
+                int pulseGeneration =
+                    requestGeneration;
+                string pulseResponse = null;
+                yield return llmService
+                    .SendDirectiveCoroutine(
+                        directive,
+                        onComplete: response =>
+                            pulseResponse = response,
+                        onError: error =>
+                            Debug.LogWarning(
+                                "[WorldPulse] " + error));
+
+                if (pulseGeneration !=
+                        requestGeneration ||
+                    string.IsNullOrWhiteSpace(
+                        pulseResponse))
+                {
+                    continue;
+                }
+                ApplyWorldPulseResponse(
+                    pulseResponse);
+            }
+        }
+
+        private void ApplyWorldPulseResponse(
+            string response)
+        {
+            string[] lines =
+                response.Split(
+                    new[] { '\n' },
+                    StringSplitOptions
+                        .RemoveEmptyEntries);
+            foreach (string rawLine in lines)
+            {
+                int speakerSeparator =
+                    rawLine.IndexOf(':');
+                if (speakerSeparator <= 0)
+                {
+                    continue;
+                }
+                string character =
+                    rawLine.Substring(
+                            0,
+                            speakerSeparator)
+                        .Trim()
+                        .Trim(
+                            '*', '#',
+                            '[', ']');
+                string[] choices =
+                    rawLine.Substring(
+                            speakerSeparator + 1)
+                        .Split(';');
+                foreach (string choice in choices)
+                {
+                    string trimmed =
+                        choice.Trim();
+                    if (!trimmed.StartsWith(
+                            "pose=",
+                            StringComparison
+                                .OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+                    string poseName =
+                        trimmed.Substring(5)
+                            .Trim()
+                            .Trim(
+                                '"', '\'',
+                                '.', ' ');
+                    if (character.Equals(
+                            "jojo",
+                            StringComparison
+                                .OrdinalIgnoreCase) &&
+                        companionCamera != null &&
+                        companionCamera.ExploreMode)
+                    {
+                        // Stella remains under direct player control in POV
+                        // mode; her autonomous choice can wait for TV mode.
+                        break;
+                    }
+                    vrmService
+                        .SetCharacterPoseByName(
+                            character,
+                            poseName);
+                    break;
+                }
+            }
         }
 
         private int GetPoseIndexByName(string poseName)
@@ -702,15 +1254,9 @@ namespace AICompanion.Core
 
             if (showConfirmation)
             {
-                string savedPoseDisplay =
-                    companionUI != null
-                        ? companionUI.GetPoseDisplayName(
-                            config.savedPoseName)
-                        : config.savedPoseName;
                 companionUI.AppendLog(
                     "System",
-                    $"saved current frame ({savedPoseDisplay}) " +
-                    "as the default layout.");
+                    "saved current frame as the default layout.");
             }
             Debug.Log(
                 showConfirmation
@@ -805,8 +1351,7 @@ namespace AICompanion.Core
 
             companionUI.AppendLog(
                 "System",
-                $"loaded saved state " +
-                $"({companionUI.GetPoseDisplayName(config.savedPoseName)}).");
+                "loaded saved state.");
             Debug.Log(
                 $"[CompanionController] Loaded saved frame layout. " +
                 $"Pose: {config.savedPoseName}");
@@ -814,10 +1359,20 @@ namespace AICompanion.Core
 
         private void OnDestroy()
         {
+            if (audioSource != null)
+            {
+                audioSource.Stop();
+                ReleaseSpeechClip();
+            }
             if (autosaveCoroutine != null)
             {
                 StopCoroutine(autosaveCoroutine);
                 autosaveCoroutine = null;
+            }
+            if (worldPulseCoroutine != null)
+            {
+                StopCoroutine(worldPulseCoroutine);
+                worldPulseCoroutine = null;
             }
 
             if (companionUI != null)
@@ -830,12 +1385,20 @@ namespace AICompanion.Core
                 companionUI.OnMicToggleChanged -= HandleMicToggle;
                 companionUI.OnExploreModeToggleChanged -=
                     HandleExploreModeToggle;
+                companionUI.OnSpeechBubbleToggleChanged -=
+                    HandleSpeechBubbleToggle;
                 companionUI.OnCyclePoseRequested -= HandleCyclePose;
                 companionUI.OnPoseSelected -= HandlePoseSelected;
                 companionUI.OnZoomInSliderChanged -= HandleZoomInSliderChanged;
                 companionUI.OnZoomOutSliderChanged -= HandleZoomOutSliderChanged;
                 companionUI.OnSaveFrameRequested -= SaveCurrentFrame;
                 companionUI.OnLoadFrameRequested -= LoadSavedFrame;
+                companionUI.OnSatellitePhoneOpened -=
+                    RefreshSatellitePhone;
+                companionUI.OnSatelliteCalled -=
+                    HandleSatelliteCalled;
+                companionUI.OnWhistleRequested -=
+                    HandleWhistleRequested;
             }
         }
     }

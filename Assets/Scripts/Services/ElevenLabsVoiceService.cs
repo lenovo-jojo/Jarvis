@@ -10,7 +10,7 @@ namespace AICompanion.Services
 {
     public class ElevenLabsVoiceService : MonoBehaviour, IVoiceService
     {
-        public IEnumerator GenerateSpeechCoroutine(string text, Action<AudioClip> onComplete, Action<string> onError)
+        public IEnumerator GenerateSpeechCoroutine(string characterId, string text, Action<AudioClip> onComplete, Action<string> onError)
         {
             ServiceConfig config = ServiceConfig.Load();
 

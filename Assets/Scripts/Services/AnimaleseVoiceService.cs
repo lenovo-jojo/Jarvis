@@ -8,10 +8,9 @@ namespace AICompanion.Services
 {
     public class AnimaleseVoiceService : MonoBehaviour, IVoiceService
     {
-        private const float DefaultPitch = 1.35f; // Classic cute high pitch
         private const bool DefaultShorten = true;  // Classic fast chatter
 
-        public IEnumerator GenerateSpeechCoroutine(string text, Action<AudioClip> onComplete, Action<string> onError)
+        public IEnumerator GenerateSpeechCoroutine(string characterId, string text, Action<AudioClip> onComplete, Action<string> onError)
         {
             if (string.IsNullOrEmpty(text))
             {
@@ -53,14 +52,16 @@ namespace AICompanion.Services
             float libraryLetterSecs = 0.15f;
             int librarySamplesPerLetter = Mathf.FloorToInt(libraryLetterSecs * sampleRate); // 6615 samples
 
-            float outputLetterSecs = 0.075f;
+            ResolveVoiceProfile(
+                characterId,
+                out float pitch,
+                out float outputLetterSecs,
+                out float lowPassBlend);
             int outputSamplesPerLetter = Mathf.FloorToInt(outputLetterSecs * sampleRate);   // 3307 samples
 
             // 5. Generate synthesized output samples
             int totalSamples = processedText.Length * outputSamplesPerLetter;
             float[] samples = new float[totalSamples];
-
-            float pitch = DefaultPitch;
 
             for (int cIndex = 0; cIndex < processedText.Length; cIndex++)
             {
@@ -70,18 +71,50 @@ namespace AICompanion.Services
                     int letterOffset = c - 'A';
                     int libraryLetterStart = librarySamplesPerLetter * letterOffset;
 
+                    int fadeSamples =
+                        Mathf.Max(
+                            1,
+                            Mathf.RoundToInt(
+                                sampleRate * 0.006f));
                     for (int i = 0; i < outputSamplesPerLetter; i++)
                     {
-                        int sampleOffset = Mathf.FloorToInt(i * pitch);
-                        // Wrap to avoid index out of bounds for the 0.15s letter sample
-                        sampleOffset = sampleOffset % librarySamplesPerLetter;
-
-                        int targetIndex = libraryLetterStart + sampleOffset;
+                        float sourceOffset = i * pitch;
+                        int firstOffset =
+                            Mathf.FloorToInt(
+                                sourceOffset);
+                        int secondOffset =
+                            Mathf.Min(
+                                firstOffset + 1,
+                                librarySamplesPerLetter - 1);
+                        float interpolation =
+                            sourceOffset - firstOffset;
+                        int firstIndex =
+                            libraryLetterStart + firstOffset;
+                        int secondIndex =
+                            libraryLetterStart + secondOffset;
                         int destIndex = cIndex * outputSamplesPerLetter + i;
 
-                        if (targetIndex >= 0 && targetIndex < librarySamples.Length)
+                        if (firstIndex >= 0 &&
+                            secondIndex < librarySamples.Length)
                         {
-                            samples[destIndex] = librarySamples[targetIndex];
+                            float sample = Mathf.Lerp(
+                                librarySamples[firstIndex],
+                                librarySamples[secondIndex],
+                                interpolation);
+                            float fadeIn =
+                                Mathf.Clamp01(
+                                    i /
+                                    (float)fadeSamples);
+                            float fadeOut =
+                                Mathf.Clamp01(
+                                    (outputSamplesPerLetter -
+                                     1 - i) /
+                                    (float)fadeSamples);
+                            samples[destIndex] =
+                                sample *
+                                Mathf.Min(
+                                    fadeIn,
+                                    fadeOut);
                         }
                         else
                         {
@@ -100,12 +133,65 @@ namespace AICompanion.Services
                 }
             }
 
+            // Remove DC offset and gently roll off the aliasing created by
+            // pitching the letter bank upward. This prevents the faint
+            // high-frequency whistle that otherwise survives between words.
+            float mean = 0f;
+            for (int i = 0; i < samples.Length; i++)
+            {
+                mean += samples[i];
+            }
+            mean /= Mathf.Max(1, samples.Length);
+
+            float filtered = 0f;
+            for (int i = 0; i < samples.Length; i++)
+            {
+                float centered = samples[i] - mean;
+                filtered +=
+                    (centered - filtered) *
+                    lowPassBlend;
+                samples[i] = filtered;
+            }
+
             // 6. Create and return the custom synthesized AudioClip
             AudioClip clip = AudioClip.Create("AnimaleseSpeech", totalSamples, 1, sampleRate, false);
             clip.SetData(samples, 0);
 
             onComplete?.Invoke(clip);
             yield break;
+        }
+
+        private static void ResolveVoiceProfile(
+            string characterId,
+            out float pitch,
+            out float letterSeconds,
+            out float lowPassBlend)
+        {
+            string normalized =
+                (characterId ?? string.Empty)
+                    .Trim()
+                    .ToLowerInvariant()
+                    .Replace("_jarvis", string.Empty)
+                    .Replace(" jarvis", string.Empty);
+            switch (normalized)
+            {
+                case "jojo":
+                    pitch = 1.27f;
+                    letterSeconds = 0.078f;
+                    lowPassBlend = 0.40f;
+                    break;
+                case "spike":
+                    pitch = 1.08f;
+                    letterSeconds = 0.086f;
+                    lowPassBlend = 0.31f;
+                    break;
+                case "charmy":
+                default:
+                    pitch = 1.48f;
+                    letterSeconds = 0.070f;
+                    lowPassBlend = 0.47f;
+                    break;
+            }
         }
 
         private string ShortenText(string text, bool shorten)

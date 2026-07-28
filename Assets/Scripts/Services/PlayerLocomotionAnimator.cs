@@ -127,11 +127,38 @@ namespace AICompanion.Services
             bool sprinting,
             bool flying)
         {
+            if (isReady &&
+                graph.IsValid() &&
+                !graph.IsPlaying())
+            {
+                graph.Play();
+            }
             requestedSpeed = Mathf.Max(
                 0f,
                 horizontalSpeed);
             requestedSprint = sprinting;
             requestedFlying = flying;
+        }
+
+        public void SetPlaybackActive(bool active)
+        {
+            if (!isReady ||
+                !graph.IsValid())
+            {
+                return;
+            }
+
+            requestedSpeed = 0f;
+            requestedSprint = false;
+            requestedFlying = false;
+            if (active)
+            {
+                graph.Play();
+            }
+            else
+            {
+                graph.Stop();
+            }
         }
 
         private void Update()

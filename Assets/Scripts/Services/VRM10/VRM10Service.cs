@@ -1,10 +1,12 @@
 using System;
 using System.IO;
 using System.Collections.Generic;
+using System.Text;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.Playables;
 using UnityEngine.Animations;
+using UnityEngine.EventSystems;
 using AICompanion.Core;
 using UniGLTF;
 using UniVRM10;
@@ -84,9 +86,37 @@ namespace AICompanion.Services
         }
 
         [Serializable]
+        public class PoseLibraryEntry
+        {
+            public string name;
+            public string resourcePath;
+        }
+
+        [Serializable]
+        public class PoseLibraryManifest
+        {
+            public List<PoseLibraryEntry> poses;
+        }
+
+        private sealed class SatelliteArrival
+        {
+            public GameObject avatar;
+            public int slot;
+            public PlayerLocomotionAnimator locomotion;
+        }
+
+        private sealed class PlacementState
+        {
+            public GameObject avatar;
+            public Vector3 position;
+            public Quaternion rotation;
+        }
+
+        [Serializable]
         public class CustomPose
         {
             public string name;
+            public string resourcePath;
             public string vrmaPath;
             public string vpdPath;
 
@@ -128,6 +158,38 @@ namespace AICompanion.Services
         private readonly Dictionary<string, GameObject> worldAvatars =
             new Dictionary<string, GameObject>(
                 StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<GameObject, int> worldPoseIndices =
+            new Dictionary<GameObject, int>();
+        private readonly Dictionary<GameObject, SatelliteArrival>
+            satelliteArrivals =
+                new Dictionary<GameObject, SatelliteArrival>();
+        private readonly Dictionary<GameObject, int>
+            satelliteCallSlots =
+                new Dictionary<GameObject, int>();
+        private readonly Stack<PlacementState>
+            placementHistory =
+                new Stack<PlacementState>();
+        private readonly List<CharacterSpeechBubble> speechBubbles =
+            new List<CharacterSpeechBubble>();
+        private GameObject selectedCharacterGo;
+        private GameObject draggedCharacterGo;
+        private GameObject conversationFocusAvatar;
+        private GameObject activeSpeakingAvatar;
+        private CharacterSpeechBubble companionSpeechBubble;
+        private bool speechBubblesVisible = true;
+        private string primaryConversationCharacter;
+        private bool cameraAttentionRequested;
+        private bool cameraAttentionLocked;
+        private bool primaryPicnicArranged;
+        private int companionStartupPoseIndex = -1;
+        private int playerStartupPoseIndex = -1;
+        private static readonly string[] StartupSeatedPoseNames =
+        {
+            "feets to the side sit",
+            "floor stretchin sit",
+            "sittin knee hugging",
+            "cool kid sit"
+        };
         private bool isUsingCustomVrm;
         private VRMBlendShapeProxy vrmProxy;
 
@@ -478,6 +540,7 @@ namespace AICompanion.Services
         {
             loadedOptionalPoses.Clear();
             availablePoseNames.Clear();
+            LoadFavoritePoses();
 
             string soloScenesDir = Path.Combine(
                 Application.dataPath,
@@ -498,6 +561,14 @@ namespace AICompanion.Services
                 try
                 {
                     string dirName = Path.GetFileName(dir);
+                    if (availablePoseNames.Exists(
+                            poseName =>
+                                poseName.Equals(
+                                    dirName,
+                                    StringComparison.OrdinalIgnoreCase)))
+                    {
+                        continue;
+                    }
                     string[] vrmaFiles = Directory.GetFiles(
                         dir, "*.vrma", SearchOption.AllDirectories);
                     string[] vpdFiles = Directory.GetFiles(
@@ -597,6 +668,76 @@ namespace AICompanion.Services
             }
         }
 
+        private void LoadFavoritePoses()
+        {
+            TextAsset manifestAsset =
+                Resources.Load<TextAsset>(
+                    "CharacterPoses/index");
+            PoseLibraryManifest manifest =
+                manifestAsset != null
+                    ? JsonUtility.FromJson<PoseLibraryManifest>(
+                        manifestAsset.text)
+                    : null;
+
+            if (manifest?.poses == null)
+            {
+                Debug.LogWarning(
+                    "[VRMService] Character pose manifest was not found.");
+                return;
+            }
+
+            foreach (PoseLibraryEntry entry in manifest.poses)
+            {
+                if (entry == null ||
+                    string.IsNullOrWhiteSpace(entry.name) ||
+                    string.IsNullOrWhiteSpace(entry.resourcePath))
+                {
+                    continue;
+                }
+
+                TextAsset poseAsset =
+                    Resources.Load<TextAsset>(
+                        entry.resourcePath);
+                HumanPoseData pose =
+                    poseAsset != null
+                        ? JsonUtility.FromJson<HumanPoseData>(
+                            poseAsset.text)
+                        : null;
+
+                if (pose?.muscles == null ||
+                    pose.muscles.Length !=
+                    HumanTrait.MuscleCount)
+                {
+                    Debug.LogWarning(
+                        $"[VRMService] Favorite pose " +
+                        $"'{entry.name}' is not a valid humanoid pose.");
+                    continue;
+                }
+
+                loadedOptionalPoses.Add(
+                    new CustomPose
+                    {
+                        name = entry.name,
+                        resourcePath = entry.resourcePath,
+                        bodyPosition = pose.bodyPosition,
+                        bodyRotation = pose.bodyRotation,
+                        muscles = pose.muscles,
+                        characterRotation = Quaternion.identity,
+                        characterScale = Vector3.one,
+                        cameraRotation = Quaternion.identity,
+                        cameraFov = 60f,
+                        lightDirection = Quaternion.identity,
+                        lightColor = Color.white,
+                        lightProps = new List<LightPropData>()
+                    });
+                availablePoseNames.Add(entry.name);
+            }
+
+            Debug.Log(
+                $"[VRMService] Loaded " +
+                $"{availablePoseNames.Count} favorite character poses.");
+        }
+
         public List<string> GetAvailablePoses()
         {
             if (availablePoseNames.Count == 0)
@@ -615,6 +756,15 @@ namespace AICompanion.Services
                 return;
             }
 
+            if (selectedCharacterGo != null &&
+                selectedCharacterGo != currentAvatarGo)
+            {
+                SetWorldCharacterPose(
+                    selectedCharacterGo,
+                    index);
+                return;
+            }
+
             if (vrm10Instance == null)
             {
                 Debug.LogWarning(
@@ -622,6 +772,11 @@ namespace AICompanion.Services
                 return;
             }
 
+            StopSatelliteArrival(
+                currentAvatarGo);
+            currentAvatarGo
+                .GetComponent<PlayerLocomotionAnimator>()
+                ?.SetPlaybackActive(false);
             currentPoseIndex = Mathf.Clamp(index, 0, loadedOptionalPoses.Count - 1);
             appliedVpdPoseIndex = -1;
             hasReportedVrmaRetargetFailure = false;
@@ -682,6 +837,8 @@ namespace AICompanion.Services
                         $"[VRMService] Playing VRMA pose: {cp.vrmaPath}");
 
                     ApplyPoseSceneContext(cp);
+                    EnsureAvatarCollider(
+                        currentAvatarGo);
                     return;
                 }
                 catch (Exception ex)
@@ -711,6 +868,8 @@ namespace AICompanion.Services
 
                 Debug.Log($"[VRMService] Applied fallback VPD pose: {cp.name}");
                 ApplyPoseSceneContext(cp);
+                EnsureAvatarCollider(
+                    currentAvatarGo);
                 return;
             }
 
@@ -766,6 +925,7 @@ namespace AICompanion.Services
             idleTime += Time.deltaTime;
 
             HandleDragging();
+            UpdateSatelliteArrivals();
 
             // Custom VRMs use runtime LookAt below. Keep the procedural
             // fallback aligned with the same active gaze target.
@@ -892,33 +1052,80 @@ namespace AICompanion.Services
 
             if (mouse.leftButton.wasPressedThisFrame)
             {
+                if (EventSystem.current != null &&
+                    EventSystem.current
+                        .IsPointerOverGameObject())
+                {
+                    isDragging = false;
+                    draggedCharacterGo = null;
+                    return;
+                }
+
                 Ray ray = Camera.main.ScreenPointToRay(mousePosition);
 
-                // Start dragging only when the avatar itself was clicked.
-                if (Physics.Raycast(ray, out RaycastHit hit) &&
-                    hit.transform.IsChildOf(currentAvatarGo.transform))
+                if (Physics.Raycast(
+                        ray,
+                        out RaycastHit hit,
+                        Mathf.Infinity,
+                        Physics.DefaultRaycastLayers,
+                        QueryTriggerInteraction.Collide))
                 {
-                    dragPlane = new Plane(Camera.main.transform.forward, currentAvatarGo.transform.position);
+                    GameObject clickedCharacter =
+                        ResolveManagedCharacter(hit.transform);
+                    if (clickedCharacter == null)
+                    {
+                        SelectCharacter(null);
+                        return;
+                    }
+
+                    // First click selects and highlights. A later drag on the
+                    // already-selected character moves it.
+                    if (clickedCharacter != selectedCharacterGo)
+                    {
+                        SelectCharacter(clickedCharacter);
+                        return;
+                    }
+
+                    draggedCharacterGo = clickedCharacter;
+                    RememberPlacement(
+                        draggedCharacterGo);
+                    StopSatelliteArrival(
+                        draggedCharacterGo);
+                    dragPlane = new Plane(
+                        Camera.main.transform.forward,
+                        draggedCharacterGo.transform.position);
                     if (dragPlane.Raycast(ray, out float enter))
                     {
-                        dragOffset = currentAvatarGo.transform.position - ray.GetPoint(enter);
+                        dragOffset =
+                            draggedCharacterGo.transform.position -
+                            ray.GetPoint(enter);
                         isDragging = true;
-                        hasUserPlacedAvatar = true;
+                        if (draggedCharacterGo == currentAvatarGo)
+                        {
+                            hasUserPlacedAvatar = true;
+                        }
                         verticalVelocity = 0f;
                     }
                 }
+                else
+                {
+                    SelectCharacter(null);
+                }
             }
 
-            if (isDragging && mouse.leftButton.isPressed)
+            if (isDragging &&
+                draggedCharacterGo != null &&
+                mouse.leftButton.isPressed)
             {
                 Ray ray = Camera.main.ScreenPointToRay(mousePosition);
                 if (dragPlane.Raycast(ray, out float enter))
                 {
                     Vector3 newPosition = ray.GetPoint(enter) + dragOffset;
-                    currentAvatarGo.transform.position = newPosition;
+                    draggedCharacterGo.transform.position = newPosition;
 
                     // Keep procedural hover centered around the dragged location.
-                    if (!isUsingCustomVrm)
+                    if (draggedCharacterGo == currentAvatarGo &&
+                        !isUsingCustomVrm)
                     {
                         startPosition = newPosition;
                     }
@@ -927,17 +1134,139 @@ namespace AICompanion.Services
 
             if (mouse.leftButton.wasReleasedThisFrame)
             {
+                bool releasedOverUi =
+                    EventSystem.current != null &&
+                    EventSystem.current
+                        .IsPointerOverGameObject();
+                if (!isDragging &&
+                    releasedOverUi)
+                {
+                    SelectCharacter(null);
+                }
+                if (isDragging &&
+                    draggedCharacterGo != null)
+                {
+                    SnapCharacterToFloor(
+                        draggedCharacterGo);
+                }
                 isDragging = false;
+                draggedCharacterGo = null;
                 verticalVelocity = 0f;
                 groundedPoseIndex = -1;
                 seatedGroundingTimer = 0f;
             }
         }
 
+        private GameObject ResolveManagedCharacter(
+            Transform hitTransform)
+        {
+            if (hitTransform == null)
+            {
+                return null;
+            }
+
+            if (currentAvatarGo != null &&
+                hitTransform.IsChildOf(
+                    currentAvatarGo.transform))
+            {
+                return currentAvatarGo;
+            }
+
+            if (playerAvatarGo != null &&
+                IsAvatarVisiblySelectable(
+                    playerAvatarGo) &&
+                hitTransform.IsChildOf(
+                    playerAvatarGo.transform))
+            {
+                return playerAvatarGo;
+            }
+
+            foreach (GameObject avatar in worldAvatars.Values)
+            {
+                if (avatar != null &&
+                    hitTransform.IsChildOf(avatar.transform))
+                {
+                    return avatar;
+                }
+            }
+
+            return null;
+        }
+
+        private static bool IsAvatarVisiblySelectable(
+            GameObject avatar)
+        {
+            if (avatar == null ||
+                !avatar.activeInHierarchy)
+            {
+                return false;
+            }
+
+            foreach (Renderer renderer in
+                avatar.GetComponentsInChildren<Renderer>(
+                    true))
+            {
+                if (renderer != null &&
+                    renderer.enabled &&
+                    renderer.gameObject.activeInHierarchy)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private void SelectCharacter(GameObject character)
+        {
+            if (selectedCharacterGo == character)
+            {
+                if (selectedCharacterGo != null)
+                {
+                    CharacterSelectionHighlight current =
+                        selectedCharacterGo.GetComponent<
+                            CharacterSelectionHighlight>();
+                    if (current == null)
+                    {
+                        current =
+                            selectedCharacterGo.AddComponent<
+                                CharacterSelectionHighlight>();
+                    }
+                    current.SetSelected(true);
+                }
+                return;
+            }
+
+            if (selectedCharacterGo != null)
+            {
+                CharacterSelectionHighlight previous =
+                    selectedCharacterGo.GetComponent<
+                        CharacterSelectionHighlight>();
+                previous?.SetSelected(false);
+            }
+
+            selectedCharacterGo = character;
+            if (selectedCharacterGo == null)
+            {
+                return;
+            }
+
+            CharacterSelectionHighlight highlight =
+                selectedCharacterGo.GetComponent<
+                    CharacterSelectionHighlight>();
+            if (highlight == null)
+            {
+                highlight =
+                    selectedCharacterGo.AddComponent<
+                        CharacterSelectionHighlight>();
+            }
+            highlight.SetSelected(true);
+        }
+
         private void LateUpdate()
         {
             if (!isUsingCustomVrm || !isAnimationEnabled)
             {
+                ApplyCameraAttention();
                 return;
             }
 
@@ -975,6 +1304,7 @@ namespace AICompanion.Services
                 currentPoseIndex >= loadedOptionalPoses.Count)
             {
                 ProcessVrmRuntime();
+                ApplyCameraAttention();
                 return;
             }
 
@@ -983,6 +1313,7 @@ namespace AICompanion.Services
             if (activeVrmaAnimation != null)
             {
                 ProcessVrmRuntime();
+                ApplyCameraAttention();
                 return;
             }
 
@@ -1007,6 +1338,7 @@ namespace AICompanion.Services
 
             ApplyExpressiveLookAndMotion();
             ProcessVrmRuntime();
+            ApplyCameraAttention();
         }
 
         private void ApplyBlanketGravity()
@@ -1133,6 +1465,9 @@ namespace AICompanion.Services
 
             string poseName = loadedOptionalPoses[currentPoseIndex].name;
             return poseName.Equals(
+                       "feets to the side sit",
+                       StringComparison.OrdinalIgnoreCase) ||
+                   poseName.Equals(
                        "Feet Focus",
                        StringComparison.OrdinalIgnoreCase) ||
                    poseName.Equals(
@@ -1199,6 +1534,14 @@ namespace AICompanion.Services
                 return null;
             }
 
+            Transform attentionTarget =
+                ResolveAttentionTarget(
+                    currentAvatarGo);
+            if (attentionTarget != null)
+            {
+                return attentionTarget;
+            }
+
             CompanionCamera companionCamera =
                 Camera.main.GetComponent<CompanionCamera>();
             if (companionCamera == null ||
@@ -1240,10 +1583,15 @@ namespace AICompanion.Services
                 return;
             }
 
-            Transform lookTarget = Camera.main.transform;
+            Transform lookTarget =
+                ResolveAttentionTarget(
+                    playerAvatarGo) ??
+                Camera.main.transform;
             CompanionCamera companionCamera =
                 Camera.main.GetComponent<CompanionCamera>();
-            if (companionCamera != null &&
+            if (!cameraAttentionRequested &&
+                conversationFocusAvatar == null &&
+                companionCamera != null &&
                 !companionCamera.ExploreMode)
             {
                 GameObject companion =
@@ -1532,6 +1880,8 @@ namespace AICompanion.Services
         {
             try
             {
+                primaryPicnicArranged = false;
+                playerStartupPoseIndex = -1;
                 if (playerAvatarGo != null)
                 {
                     Destroy(playerAvatarGo);
@@ -1575,6 +1925,11 @@ namespace AICompanion.Services
                     runtimeGltf.EnableUpdateWhenOffscreen();
                     runtimeGltf.ShowMeshes();
                 }
+                EnsureSelectableCharacter(
+                    playerAvatarGo);
+                RegisterSpeechBubble(
+                    playerAvatarGo,
+                    string.Empty);
                 playerAvatarGo.SetActive(false);
 
                 ServiceConfig config = ServiceConfig.Load();
@@ -1593,6 +1948,11 @@ namespace AICompanion.Services
                 }
                 config.playerVrmPath = filePath;
                 config.Save();
+
+                playerStartupPoseIndex =
+                    ChooseStartupSeatedPose(
+                        companionStartupPoseIndex);
+                TryArrangePrimaryPicnicCharacters();
 
                 Debug.Log(
                     "[VRMService] Independent player VRM loaded.");
@@ -1642,6 +2002,396 @@ namespace AICompanion.Services
                 rotation,
                 onLoaded,
                 onError);
+        }
+
+        private void SeatWorldAvatarOnBlanket(
+            GameObject avatar,
+            int seatIndex)
+        {
+            if (avatar == null)
+            {
+                return;
+            }
+
+            GameObject blanket =
+                GameObject.Find("PicnicStage_Blanket");
+            Transform blanketTransform =
+                blanket != null
+                    ? blanket.transform
+                    : seatingAnchor;
+            Vector3 center =
+                blanketTransform != null
+                    ? blanketTransform.position
+                    : new Vector3(0f, 0.02f, 2f);
+            Renderer blanketRenderer =
+                blanket != null
+                    ? blanket.GetComponent<Renderer>()
+                    : null;
+            float surfaceY =
+                blanketRenderer != null
+                    ? blanketRenderer.bounds.max.y
+                    : center.y;
+
+            float angle =
+                (seatIndex * 137.5f + 35f) *
+                Mathf.Deg2Rad;
+            Vector3 seatOffset =
+                new Vector3(
+                    Mathf.Sin(angle),
+                    0f,
+                    Mathf.Cos(angle)) * 0.72f;
+            Vector3 seatPosition =
+                center + seatOffset;
+            seatPosition.y = surfaceY;
+            Vector3 faceCenter =
+                center - seatPosition;
+            faceCenter.y = 0f;
+            avatar.transform.SetPositionAndRotation(
+                seatPosition,
+                faceCenter.sqrMagnitude > 0.001f
+                    ? Quaternion.LookRotation(
+                        faceCenter.normalized,
+                        Vector3.up)
+                    : avatar.transform.rotation);
+
+            int poseIndex =
+                ChooseStartupSeatedPose(-1);
+            if (poseIndex < 0)
+            {
+                return;
+            }
+
+            RuntimeHumanoidPosePlayer player =
+                avatar.GetComponent<
+                    RuntimeHumanoidPosePlayer>();
+            if (player == null)
+            {
+                player =
+                    avatar.AddComponent<
+                        RuntimeHumanoidPosePlayer>();
+            }
+
+            CustomPose pose = loadedOptionalPoses[poseIndex];
+            if (player.TryLoadFavoritePose(
+                    pose.resourcePath))
+            {
+                player.SetPoseActive(
+                    true,
+                    surfaceY);
+                worldPoseIndices[avatar] =
+                    poseIndex;
+            }
+        }
+
+        private int FindPoseIndex(string poseName)
+        {
+            for (int i = 0;
+                 i < loadedOptionalPoses.Count;
+                 i++)
+            {
+                if (loadedOptionalPoses[i].name.Equals(
+                        poseName,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        private int ChooseStartupSeatedPose(
+            int excludedIndex)
+        {
+            List<int> candidates =
+                new List<int>();
+            foreach (string poseName in
+                StartupSeatedPoseNames)
+            {
+                int index =
+                    FindPoseIndex(
+                        poseName);
+                if (index >= 0 &&
+                    index != excludedIndex)
+                {
+                    candidates.Add(index);
+                }
+            }
+
+            if (candidates.Count == 0)
+            {
+                return FindPoseIndex(
+                    StartupSeatedPoseNames[0]);
+            }
+            return candidates[
+                UnityEngine.Random.Range(
+                    0,
+                    candidates.Count)];
+        }
+
+        private void TryArrangePrimaryPicnicCharacters()
+        {
+            if (primaryPicnicArranged ||
+                currentAvatarGo == null ||
+                playerAvatarGo == null)
+            {
+                return;
+            }
+
+            GameObject blanket =
+                GameObject.Find(
+                    "PicnicStage_Blanket");
+            Transform blanketTransform =
+                blanket != null
+                    ? blanket.transform
+                    : seatingAnchor;
+            Vector3 center =
+                blanketTransform != null
+                    ? blanketTransform.position
+                    : new Vector3(
+                        0f,
+                        BlanketSurfaceY,
+                        2f);
+            Renderer blanketRenderer =
+                blanket != null
+                    ? blanket.GetComponent<Renderer>()
+                    : null;
+            float surfaceY =
+                blanketRenderer != null
+                    ? blanketRenderer.bounds.max.y
+                    : center.y;
+
+            Vector3 companionSeat =
+                center +
+                new Vector3(-0.58f, 0f, 0.04f);
+            Vector3 playerSeat =
+                center +
+                new Vector3(0.58f, 0f, -0.04f);
+            companionSeat.y = surfaceY;
+            playerSeat.y = surfaceY;
+
+            currentAvatarGo.transform
+                .SetPositionAndRotation(
+                    companionSeat,
+                    Quaternion.LookRotation(
+                        (playerSeat - companionSeat)
+                            .normalized,
+                        Vector3.up));
+            playerAvatarGo.transform
+                .SetPositionAndRotation(
+                    playerSeat,
+                    Quaternion.LookRotation(
+                        (companionSeat - playerSeat)
+                            .normalized,
+                        Vector3.up));
+
+            startPosition = companionSeat;
+            hasUserPlacedAvatar = true;
+            if (playerStartupPoseIndex < 0)
+            {
+                playerStartupPoseIndex =
+                    ChooseStartupSeatedPose(
+                        companionStartupPoseIndex);
+            }
+            if (playerStartupPoseIndex >= 0)
+            {
+                SetWorldCharacterPose(
+                    playerAvatarGo,
+                    playerStartupPoseIndex);
+            }
+            primaryPicnicArranged = true;
+        }
+
+        private static void EnsureAvatarCollider(
+            GameObject avatar)
+        {
+            if (avatar == null)
+            {
+                return;
+            }
+
+            Animator animator =
+                avatar.GetComponent<Animator>();
+            if (animator != null &&
+                animator.isHuman)
+            {
+                BoxCollider broadCollider =
+                    avatar.GetComponent<BoxCollider>();
+                if (broadCollider != null)
+                {
+                    broadCollider.enabled = false;
+                }
+
+                AddHumanoidClickSphere(
+                    animator,
+                    HumanBodyBones.Head,
+                    0.13f);
+                AddHumanoidClickSphere(
+                    animator,
+                    HumanBodyBones.Chest,
+                    0.18f);
+                AddHumanoidClickSphere(
+                    animator,
+                    HumanBodyBones.Spine,
+                    0.16f);
+                AddHumanoidClickSphere(
+                    animator,
+                    HumanBodyBones.Hips,
+                    0.18f);
+                AddHumanoidClickSphere(
+                    animator,
+                    HumanBodyBones.LeftUpperArm,
+                    0.10f);
+                AddHumanoidClickSphere(
+                    animator,
+                    HumanBodyBones.RightUpperArm,
+                    0.10f);
+                AddHumanoidClickSphere(
+                    animator,
+                    HumanBodyBones.LeftLowerArm,
+                    0.085f);
+                AddHumanoidClickSphere(
+                    animator,
+                    HumanBodyBones.RightLowerArm,
+                    0.085f);
+                AddHumanoidClickSphere(
+                    animator,
+                    HumanBodyBones.LeftUpperLeg,
+                    0.12f);
+                AddHumanoidClickSphere(
+                    animator,
+                    HumanBodyBones.RightUpperLeg,
+                    0.12f);
+                AddHumanoidClickSphere(
+                    animator,
+                    HumanBodyBones.LeftLowerLeg,
+                    0.10f);
+                AddHumanoidClickSphere(
+                    animator,
+                    HumanBodyBones.RightLowerLeg,
+                    0.10f);
+                AddHumanoidClickSphere(
+                    animator,
+                    HumanBodyBones.LeftFoot,
+                    0.11f);
+                AddHumanoidClickSphere(
+                    animator,
+                    HumanBodyBones.RightFoot,
+                    0.11f);
+                return;
+            }
+
+            Bounds bounds = default;
+            bool found = false;
+            foreach (Renderer renderer in
+                avatar.GetComponentsInChildren<Renderer>(true))
+            {
+                if (renderer == null ||
+                    renderer.transform.name.EndsWith(
+                        "_SelectionOutline",
+                        StringComparison.Ordinal) ||
+                    renderer.bounds.size.sqrMagnitude < 0.0025f)
+                {
+                    continue;
+                }
+
+                if (!found)
+                {
+                    bounds = renderer.bounds;
+                    found = true;
+                }
+                else
+                {
+                    bounds.Encapsulate(renderer.bounds);
+                }
+            }
+
+            if (!found)
+            {
+                return;
+            }
+
+            BoxCollider collider =
+                avatar.GetComponent<BoxCollider>();
+            if (collider == null)
+            {
+                collider =
+                    avatar.AddComponent<BoxCollider>();
+            }
+
+            collider.center =
+                avatar.transform.InverseTransformPoint(
+                    bounds.center);
+            Vector3 localSize =
+                avatar.transform.InverseTransformVector(
+                    bounds.size);
+            collider.size = new Vector3(
+                Mathf.Max(0.2f, Mathf.Abs(localSize.x)),
+                Mathf.Max(0.4f, Mathf.Abs(localSize.y)),
+                Mathf.Max(0.2f, Mathf.Abs(localSize.z)));
+        }
+
+        private static void AddHumanoidClickSphere(
+            Animator animator,
+            HumanBodyBones bone,
+            float radius)
+        {
+            Transform boneTransform =
+                animator.GetBoneTransform(bone);
+            if (boneTransform == null)
+            {
+                return;
+            }
+
+            string objectName =
+                $"JarvisClick_{bone}";
+            Transform existing =
+                boneTransform.Find(objectName);
+            SphereCollider sphere;
+            if (existing != null)
+            {
+                sphere =
+                    existing.GetComponent<
+                        SphereCollider>();
+            }
+            else
+            {
+                GameObject clickTarget =
+                    new GameObject(objectName);
+                clickTarget.transform.SetParent(
+                    boneTransform,
+                    false);
+                sphere =
+                    clickTarget.AddComponent<
+                        SphereCollider>();
+            }
+
+            if (sphere != null)
+            {
+                sphere.isTrigger = true;
+                sphere.radius = radius;
+                sphere.center = Vector3.zero;
+            }
+        }
+
+        private static void EnsureSelectableCharacter(
+            GameObject avatar)
+        {
+            if (avatar == null)
+            {
+                return;
+            }
+
+            EnsureAvatarCollider(avatar);
+            CharacterSelectionHighlight highlight =
+                avatar.GetComponent<
+                    CharacterSelectionHighlight>();
+            if (highlight == null)
+            {
+                highlight =
+                    avatar.AddComponent<
+                        CharacterSelectionHighlight>();
+            }
+            highlight.SetSelected(false);
         }
 
         private async void LoadWorldVRMAsync(
@@ -1705,6 +2455,13 @@ namespace AICompanion.Services
                     runtimeGltf.ShowMeshes();
                 }
 
+                EnsureSelectableCharacter(avatar);
+                SeatWorldAvatarOnBlanket(
+                    avatar,
+                    worldAvatars.Count);
+                RegisterSpeechBubble(
+                    avatar,
+                    string.Empty);
                 worldAvatars[characterId] = avatar;
                 Debug.Log(
                     $"[VRMService] World character " +
@@ -1727,6 +2484,8 @@ namespace AICompanion.Services
         {
             try
             {
+                primaryPicnicArranged = false;
+                companionStartupPoseIndex = -1;
                 DestroyActiveVrma();
 
                 if (poseHandler != null)
@@ -1755,6 +2514,7 @@ namespace AICompanion.Services
 
                 currentAvatarGo = vrm10Instance.gameObject;
                 currentAvatarGo.name = "CompanionAvatarVRM";
+                DestroyProceduralFallbacks();
                 hasUserPlacedAvatar = false;
                 vrm10Instance.UpdateType = Vrm10Instance.UpdateTypes.None;
                 SanitizeSpringBones(vrm10Instance);
@@ -1895,22 +2655,12 @@ namespace AICompanion.Services
 
                 if (hasColliderBounds)
                 {
-                    BoxCollider dragCollider =
-                        currentAvatarGo.AddComponent<BoxCollider>();
-
-                    dragCollider.center =
-                        currentAvatarGo.transform.InverseTransformPoint(
-                            colliderBounds.center);
-
-                    Vector3 localSize =
-                        currentAvatarGo.transform.InverseTransformVector(
-                            colliderBounds.size);
-
-                    dragCollider.size = new Vector3(
-                        Mathf.Abs(localSize.x),
-                        Mathf.Abs(localSize.y),
-                        Mathf.Abs(localSize.z));
+                    EnsureSelectableCharacter(currentAvatarGo);
                 }
+                companionSpeechBubble =
+                    RegisterSpeechBubble(
+                        currentAvatarGo,
+                        string.Empty);
 
                 ServiceConfig config = ServiceConfig.Load();
                 config.customVrmPath = filePath;
@@ -1919,56 +2669,24 @@ namespace AICompanion.Services
                 Debug.Log(
                     "[VRMService] VRM 1.0 character loaded successfully.");
 
-                if (config.hasSavedFrame)
+                companionStartupPoseIndex =
+                    ChooseStartupSeatedPose(
+                        playerStartupPoseIndex);
+                if (companionStartupPoseIndex >= 0)
                 {
-                    currentAvatarGo.transform.position = new Vector3(config.avatarPosX, config.avatarPosY, config.avatarPosZ);
-                    currentAvatarGo.transform.rotation = new Quaternion(config.avatarRotX, config.avatarRotY, config.avatarRotZ, config.avatarRotW);
-                    startPosition = currentAvatarGo.transform.position;
-
-                    int savedPoseIdx = -1;
-                    if (!string.IsNullOrEmpty(config.savedPoseName))
-                    {
-                        for (int i = 0; i < loadedOptionalPoses.Count; i++)
-                        {
-                            if (loadedOptionalPoses[i].name.Equals(config.savedPoseName, StringComparison.OrdinalIgnoreCase))
-                            {
-                                savedPoseIdx = i;
-                                break;
-                            }
-                        }
-                    }
-                    if (savedPoseIdx != -1)
-                    {
-                        SetPose(savedPoseIdx);
-                    }
-                    else
-                    {
-                        currentPoseIndex = -1;
-                    }
+                    GameObject previousSelection =
+                        selectedCharacterGo;
+                    selectedCharacterGo = null;
+                    SetPose(
+                        companionStartupPoseIndex);
+                    selectedCharacterGo =
+                        previousSelection;
                 }
                 else
                 {
-                    // Start new picnic sessions in the cozy seated pose.
-                    int defaultPoseIdx = -1;
-                    for (int i = 0; i < loadedOptionalPoses.Count; i++)
-                    {
-                        if (loadedOptionalPoses[i].name.Equals(
-                            "Feet Focus",
-                            StringComparison.OrdinalIgnoreCase))
-                        {
-                            defaultPoseIdx = i;
-                            break;
-                        }
-                    }
-                    if (defaultPoseIdx != -1)
-                    {
-                        SetPose(defaultPoseIdx);
-                    }
-                    else
-                    {
-                        currentPoseIndex = -1;
-                    }
+                    currentPoseIndex = -1;
                 }
+                TryArrangePrimaryPicnicCharacters();
                 onLoaded?.Invoke(currentAvatarGo);
             }
             catch (Exception ex)
@@ -2092,30 +2810,1055 @@ namespace AICompanion.Services
             }
         }
 
-        public void PlayMouthVolume(float volume)
+        private void DestroyProceduralFallbacks()
         {
-            if (isUsingCustomVrm)
+            Transform[] sceneTransforms =
+                GameObject.FindObjectsByType<Transform>(
+                    FindObjectsInactive.Include);
+            foreach (Transform candidate in
+                sceneTransforms)
             {
-                float weight = Mathf.Clamp01(volume * 2.0f);
-                currentLipSyncWeight = weight;
-                if (vrm10Instance != null && vrm10Instance.Runtime != null && vrm10Instance.Runtime.Expression != null)
+                if (candidate == null ||
+                    candidate.gameObject ==
+                        currentAvatarGo ||
+                    candidate.parent != null ||
+                    !candidate.gameObject.scene.IsValid() ||
+                    !candidate.name.Equals(
+                        "CompanionAvatarProcedural",
+                        StringComparison.Ordinal))
                 {
-                    vrm10Instance.Runtime.Expression.SetWeight(ExpressionKey.Aa, weight);
+                    continue;
                 }
-                else if (vrmProxy != null)
+                Destroy(candidate.gameObject);
+            }
+        }
+
+        public void SetSpeechBubblesVisible(
+            bool visible)
+        {
+            speechBubblesVisible = visible;
+            for (int i = speechBubbles.Count - 1;
+                 i >= 0;
+                 i--)
+            {
+                CharacterSpeechBubble bubble =
+                    speechBubbles[i];
+                if (bubble == null)
                 {
-                    vrmProxy.ImmediatelySetValue(BlendShapeKey.CreateFromPreset(BlendShapePreset.A), weight);
+                    speechBubbles.RemoveAt(i);
+                    continue;
                 }
-                if (fallbackFaceRenderer != null && fallbackMouthBlendshapeIdx != -1)
+                bubble.SetBubbleVisible(visible);
+            }
+        }
+
+        public void SetSpeechBubbleMessage(
+            string message)
+        {
+            if (companionSpeechBubble != null)
+            {
+                companionSpeechBubble.SetMessage(
+                    message);
+            }
+        }
+
+        public List<string> GetAvailableSatellites()
+        {
+            List<string> satellites =
+                new List<string>
                 {
-                    fallbackFaceRenderer.SetBlendShapeWeight(fallbackMouthBlendshapeIdx, weight * 100f);
+                    "charmy jarvis"
+                };
+            foreach (string characterId in
+                worldAvatars.Keys)
+            {
+                if (!satellites.Exists(
+                        name =>
+                            name.Equals(
+                                characterId,
+                                StringComparison.OrdinalIgnoreCase)))
+                {
+                    satellites.Add(characterId);
                 }
             }
-            else if (mouthTransform != null)
+            return satellites;
+        }
+
+        public bool CallSatellite(string satelliteId)
+        {
+            if (playerAvatarGo == null ||
+                string.IsNullOrWhiteSpace(
+                    satelliteId))
+            {
+                return false;
+            }
+
+            GameObject satellite = null;
+            string normalized =
+                satelliteId.Trim();
+            if (normalized.Equals(
+                    "charmy jarvis",
+                    StringComparison.OrdinalIgnoreCase) ||
+                normalized.Equals(
+                    "charmy",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                satellite = currentAvatarGo;
+            }
+            else
+            {
+                worldAvatars.TryGetValue(
+                    normalized,
+                    out satellite);
+            }
+
+            if (satellite == null)
+            {
+                return false;
+            }
+
+            RememberPlacement(satellite);
+            satellite.SetActive(true);
+            RuntimeHumanoidPosePlayer posePlayer =
+                satellite.GetComponent<
+                    RuntimeHumanoidPosePlayer>();
+            posePlayer?.SetPoseActive(
+                false,
+                satellite.transform.position.y);
+
+            if (satellite == currentAvatarGo)
+            {
+                DestroyActiveVrma();
+                currentPoseIndex = -1;
+                appliedVpdPoseIndex = -1;
+            }
+
+            PlayerLocomotionAnimator locomotion =
+                satellite.GetComponent<
+                    PlayerLocomotionAnimator>();
+            if (locomotion == null)
+            {
+                locomotion =
+                    satellite.AddComponent<
+                        PlayerLocomotionAnimator>();
+            }
+            locomotion.SetPlaybackActive(true);
+
+            if (!satelliteCallSlots.TryGetValue(
+                    satellite,
+                    out int callSlot))
+            {
+                callSlot =
+                    satelliteCallSlots.Count;
+                satelliteCallSlots[satellite] =
+                    callSlot;
+            }
+            satelliteArrivals[satellite] =
+                new SatelliteArrival
+                {
+                    avatar = satellite,
+                    slot = callSlot,
+                    locomotion = locomotion
+                };
+
+            if (satellite == currentAvatarGo)
+            {
+                hasUserPlacedAvatar = true;
+                groundedPoseIndex = -1;
+                seatedGroundingTimer = 0f;
+            }
+
+            CharacterSpeechBubble bubble =
+                satellite.GetComponent<
+                    CharacterSpeechBubble>();
+            bubble?.SetMessage(string.Empty);
+            SelectCharacter(satellite);
+            return true;
+        }
+
+        private void UpdateSatelliteArrivals()
+        {
+            if (playerAvatarGo == null ||
+                satelliteArrivals.Count == 0)
+            {
+                return;
+            }
+
+            List<GameObject> completed =
+                null;
+            foreach (KeyValuePair<GameObject, SatelliteArrival>
+                pair in satelliteArrivals)
+            {
+                SatelliteArrival arrival =
+                    pair.Value;
+                if (arrival?.avatar == null)
+                {
+                    completed ??=
+                        new List<GameObject>();
+                    completed.Add(pair.Key);
+                    continue;
+                }
+
+                Vector3 destination =
+                    GetSatelliteJoinPosition(
+                        arrival.slot);
+                Vector3 delta =
+                    destination -
+                    arrival.avatar.transform.position;
+                Vector3 flatDelta =
+                    new Vector3(
+                        delta.x,
+                        0f,
+                        delta.z);
+                const float StopDistance = 0.12f;
+                const float WalkSpeed = 1.75f;
+
+                if (flatDelta.magnitude >
+                    StopDistance)
+                {
+                    Vector3 direction =
+                        flatDelta.normalized;
+                    Vector3 next =
+                        Vector3.MoveTowards(
+                            arrival.avatar.transform.position,
+                            destination,
+                            WalkSpeed *
+                            Time.deltaTime);
+                    next.y =
+                        Mathf.Max(
+                            0.02f,
+                            next.y);
+                    arrival.avatar.transform.position =
+                        next;
+                    Quaternion facing =
+                        Quaternion.LookRotation(
+                            direction,
+                            Vector3.up);
+                    arrival.avatar.transform.rotation =
+                        Quaternion.Slerp(
+                            arrival.avatar.transform.rotation,
+                            facing,
+                            Time.deltaTime * 8f);
+                    arrival.locomotion?.SetMotion(
+                        WalkSpeed,
+                        false,
+                        false);
+                    if (arrival.avatar ==
+                        currentAvatarGo)
+                    {
+                        startPosition = next;
+                    }
+                    continue;
+                }
+
+                arrival.avatar.transform.position =
+                    destination;
+                Vector3 faceStella =
+                    playerAvatarGo.transform.position -
+                    destination;
+                faceStella.y = 0f;
+                if (faceStella.sqrMagnitude >
+                    0.001f)
+                {
+                    arrival.avatar.transform.rotation =
+                        Quaternion.LookRotation(
+                            faceStella.normalized,
+                            Vector3.up);
+                }
+                arrival.locomotion?.SetMotion(
+                    0f,
+                    false,
+                    false);
+                completed ??=
+                    new List<GameObject>();
+                completed.Add(
+                    arrival.avatar);
+            }
+
+            if (completed == null)
+            {
+                return;
+            }
+            foreach (GameObject avatar in completed)
+            {
+                satelliteArrivals.Remove(
+                    avatar);
+            }
+        }
+
+        private Vector3 GetSatelliteJoinPosition(
+            int slot)
+        {
+            float side =
+                slot % 2 == 0
+                    ? 1f
+                    : -1f;
+            float row =
+                Mathf.Floor(
+                    slot / 2f);
+            Vector3 position =
+                playerAvatarGo.transform.position +
+                playerAvatarGo.transform.right *
+                side *
+                (1.05f + row * 0.55f) -
+                playerAvatarGo.transform.forward *
+                (0.25f + row * 0.2f);
+            position.y =
+                Mathf.Max(
+                    0.02f,
+                    playerAvatarGo.transform.position.y);
+            return position;
+        }
+
+        private void StopSatelliteArrival(
+            GameObject avatar)
+        {
+            if (avatar == null ||
+                !satelliteArrivals.TryGetValue(
+                    avatar,
+                    out SatelliteArrival arrival))
+            {
+                return;
+            }
+
+            arrival.locomotion?.SetMotion(
+                0f,
+                false,
+                false);
+            satelliteArrivals.Remove(avatar);
+        }
+
+        private void RememberPlacement(
+            GameObject avatar)
+        {
+            if (avatar == null)
+            {
+                return;
+            }
+
+            placementHistory.Push(
+                new PlacementState
+                {
+                    avatar = avatar,
+                    position =
+                        avatar.transform.position,
+                    rotation =
+                        avatar.transform.rotation
+                });
+        }
+
+        public void UndoLastPlacement()
+        {
+            while (placementHistory.Count > 0)
+            {
+                PlacementState state =
+                    placementHistory.Pop();
+                if (state?.avatar == null)
+                {
+                    continue;
+                }
+
+                StopSatelliteArrival(
+                    state.avatar);
+                state.avatar.transform
+                    .SetPositionAndRotation(
+                        state.position,
+                        state.rotation);
+                if (state.avatar ==
+                    currentAvatarGo)
+                {
+                    hasUserPlacedAvatar = true;
+                    startPosition =
+                        state.position;
+                    verticalVelocity = 0f;
+                }
+                SelectCharacter(
+                    state.avatar);
+                return;
+            }
+        }
+
+        private static void SnapCharacterToFloor(
+            GameObject avatar)
+        {
+            if (avatar == null)
+            {
+                return;
+            }
+
+            Bounds bounds = default;
+            bool hasBounds = false;
+            foreach (Renderer renderer in
+                avatar.GetComponentsInChildren<
+                    Renderer>(false))
+            {
+                if (renderer == null ||
+                    !renderer.enabled ||
+                    renderer.transform.name.EndsWith(
+                        "_SelectionOutline",
+                        StringComparison.Ordinal) ||
+                    renderer.bounds.size.sqrMagnitude <
+                    0.0025f)
+                {
+                    continue;
+                }
+
+                if (!hasBounds)
+                {
+                    bounds = renderer.bounds;
+                    hasBounds = true;
+                }
+                else
+                {
+                    bounds.Encapsulate(
+                        renderer.bounds);
+                }
+            }
+            if (!hasBounds)
+            {
+                return;
+            }
+
+            float surfaceY = 0.02f;
+            Vector3 rayOrigin =
+                bounds.center +
+                Vector3.up *
+                (bounds.extents.y + 2f);
+            RaycastHit[] hits =
+                Physics.RaycastAll(
+                    rayOrigin,
+                    Vector3.down,
+                    bounds.size.y + 8f,
+                    Physics.DefaultRaycastLayers,
+                    QueryTriggerInteraction.Ignore);
+            foreach (RaycastHit hit in hits)
+            {
+                if (hit.transform == null ||
+                    hit.transform.IsChildOf(
+                        avatar.transform) ||
+                    hit.point.y >
+                        bounds.center.y + 0.25f)
+                {
+                    continue;
+                }
+                surfaceY =
+                    Mathf.Max(
+                        surfaceY,
+                        hit.point.y);
+            }
+
+            Vector3 position =
+                avatar.transform.position;
+            position.y +=
+                surfaceY -
+                bounds.min.y +
+                0.006f;
+            avatar.transform.position =
+                position;
+        }
+
+        public void FocusSelectedCharacterForConversation()
+        {
+            if (selectedCharacterGo == null)
+            {
+                return;
+            }
+            primaryConversationCharacter =
+                GetCharacterId(
+                    selectedCharacterGo);
+            Camera.main
+                ?.GetComponent<CompanionCamera>()
+                ?.SetTrackedTarget(
+                    selectedCharacterGo.transform);
+        }
+
+        public void WhistleForCamera()
+        {
+            conversationFocusAvatar = null;
+            cameraAttentionRequested = true;
+            ApplyCameraAttention();
+        }
+
+        public void SetCameraAttentionLocked(
+            bool locked)
+        {
+            cameraAttentionLocked = locked;
+            if (locked)
+            {
+                conversationFocusAvatar = null;
+                cameraAttentionRequested = true;
+                ApplyCameraAttention();
+            }
+        }
+
+        private void ApplyCameraAttention()
+        {
+            Camera activeCamera = Camera.main;
+            if (activeCamera == null)
+            {
+                return;
+            }
+
+            if (conversationFocusAvatar != null &&
+                conversationFocusAvatar
+                    .activeInHierarchy)
+            {
+                Vector3 speakerPosition =
+                    GetAvatarLookPosition(
+                        conversationFocusAvatar);
+                ApplyAttentionToObserver(
+                    currentAvatarGo,
+                    speakerPosition);
+                ApplyAttentionToObserver(
+                    playerAvatarGo,
+                    speakerPosition);
+                foreach (GameObject avatar in
+                    worldAvatars.Values)
+                {
+                    ApplyAttentionToObserver(
+                        avatar,
+                        speakerPosition);
+                }
+                return;
+            }
+
+            if (!cameraAttentionRequested)
+            {
+                return;
+            }
+
+            ApplyCameraAttention(
+                currentAvatarGo,
+                activeCamera.transform.position);
+            ApplyCameraAttention(
+                playerAvatarGo,
+                activeCamera.transform.position);
+            foreach (GameObject avatar in
+                worldAvatars.Values)
+            {
+                ApplyCameraAttention(
+                    avatar,
+                    activeCamera.transform.position);
+            }
+        }
+
+        private void ApplyAttentionToObserver(
+            GameObject observer,
+            Vector3 targetPosition)
+        {
+            if (observer == null ||
+                observer ==
+                    conversationFocusAvatar)
+            {
+                return;
+            }
+            ApplyCameraAttention(
+                observer,
+                targetPosition);
+        }
+
+        private static void ApplyCameraAttention(
+            GameObject avatar,
+            Vector3 cameraPosition)
+        {
+            if (avatar == null ||
+                !avatar.activeInHierarchy)
+            {
+                return;
+            }
+
+            Vector3 bodyDirection =
+                cameraPosition -
+                avatar.transform.position;
+            bodyDirection.y = 0f;
+            if (bodyDirection.sqrMagnitude > 0.01f)
+            {
+                Quaternion targetRotation =
+                    Quaternion.LookRotation(
+                        bodyDirection.normalized,
+                        Vector3.up);
+                avatar.transform.rotation =
+                    Quaternion.Slerp(
+                        avatar.transform.rotation,
+                        targetRotation,
+                        Time.unscaledDeltaTime * 6f);
+            }
+
+            Vrm10Instance instance =
+                avatar.GetComponent<Vrm10Instance>();
+            if (instance?.Runtime?.LookAt != null)
+            {
+                instance.Runtime.LookAt.LookAtInput =
+                    new LookAtInput
+                    {
+                        WorldPosition = cameraPosition
+                    };
+            }
+        }
+
+        private Transform ResolveAttentionTarget(
+            GameObject observer)
+        {
+            if (cameraAttentionRequested)
+            {
+                return Camera.main != null
+                    ? Camera.main.transform
+                    : null;
+            }
+
+            if (conversationFocusAvatar == null ||
+                conversationFocusAvatar == observer ||
+                !conversationFocusAvatar
+                    .activeInHierarchy)
+            {
+                return null;
+            }
+
+            Animator animator =
+                conversationFocusAvatar.GetComponent<
+                    Animator>();
+            Transform head =
+                animator != null &&
+                animator.isHuman
+                    ? animator.GetBoneTransform(
+                        HumanBodyBones.Head)
+                    : null;
+            return head != null
+                ? head
+                : conversationFocusAvatar.transform;
+        }
+
+        private static Vector3 GetAvatarLookPosition(
+            GameObject avatar)
+        {
+            if (avatar == null)
+            {
+                return Vector3.zero;
+            }
+
+            Animator animator =
+                avatar.GetComponent<Animator>();
+            Transform head =
+                animator != null &&
+                animator.isHuman
+                    ? animator.GetBoneTransform(
+                        HumanBodyBones.Head)
+                    : null;
+            return head != null
+                ? head.position
+                : avatar.transform.position +
+                  Vector3.up * 1.35f;
+        }
+
+        public string GetPrimaryConversationCharacter()
+        {
+            return primaryConversationCharacter;
+        }
+
+        public List<string>
+            GetConversationCharactersInFrame()
+        {
+            List<string> visible =
+                new List<string>();
+            Camera activeCamera =
+                Camera.main;
+            Plane[] planes =
+                activeCamera != null
+                    ? GeometryUtility
+                        .CalculateFrustumPlanes(
+                            activeCamera)
+                    : null;
+
+            AddCharacterIfVisible(
+                visible,
+                currentAvatarGo,
+                "charmy",
+                planes);
+            AddCharacterIfVisible(
+                visible,
+                playerAvatarGo,
+                "jojo",
+                planes);
+            foreach (KeyValuePair<string, GameObject>
+                pair in worldAvatars)
+            {
+                AddCharacterIfVisible(
+                    visible,
+                    pair.Value,
+                    pair.Key,
+                    planes);
+            }
+            return visible;
+        }
+
+        private static void AddCharacterIfVisible(
+            List<string> visible,
+            GameObject avatar,
+            string characterId,
+            Plane[] cameraPlanes)
+        {
+            if (avatar == null ||
+                !avatar.activeInHierarchy ||
+                string.IsNullOrWhiteSpace(
+                    characterId))
+            {
+                return;
+            }
+
+            bool inFrame =
+                cameraPlanes == null;
+            foreach (Renderer renderer in
+                avatar.GetComponentsInChildren<
+                    Renderer>(false))
+            {
+                if (renderer != null &&
+                    renderer.enabled &&
+                    !renderer.transform.name.EndsWith(
+                        "_SelectionOutline",
+                        StringComparison.Ordinal) &&
+                    (cameraPlanes == null ||
+                     GeometryUtility.TestPlanesAABB(
+                         cameraPlanes,
+                         renderer.bounds)))
+                {
+                    inFrame = true;
+                    break;
+                }
+            }
+            if (inFrame &&
+                !visible.Exists(
+                    item =>
+                        item.Equals(
+                            characterId,
+                            StringComparison.OrdinalIgnoreCase)))
+            {
+                visible.Add(characterId);
+            }
+        }
+
+        public void SetCharacterSpeech(
+            string characterId,
+            string message,
+            bool speaking)
+        {
+            GameObject avatar =
+                ResolveCharacterById(
+                    characterId);
+            if (avatar == null)
+            {
+                return;
+            }
+
+            if (speaking)
+            {
+                if (activeSpeakingAvatar != null &&
+                    activeSpeakingAvatar != avatar)
+                {
+                    ApplyMouthWeight(
+                        activeSpeakingAvatar,
+                        0f);
+                }
+                activeSpeakingAvatar = avatar;
+                if (!cameraAttentionLocked)
+                {
+                    conversationFocusAvatar = avatar;
+                    cameraAttentionRequested = false;
+                }
+            }
+            else if (activeSpeakingAvatar == avatar)
+            {
+                ApplyMouthWeight(
+                    activeSpeakingAvatar,
+                    0f);
+                activeSpeakingAvatar = null;
+            }
+
+            CharacterSpeechBubble bubble =
+                avatar.GetComponent<
+                    CharacterSpeechBubble>();
+            if (bubble == null)
+            {
+                bubble =
+                    RegisterSpeechBubble(
+                        avatar,
+                        string.Empty);
+            }
+            bubble.SetMessage(message);
+            bubble.SetSpeaking(speaking);
+        }
+
+        public string GetWorldStateSummary()
+        {
+            StringBuilder summary =
+                new StringBuilder(
+                    "stage=picnic meadow; active area=picnic blanket");
+            AppendCharacterState(
+                summary,
+                "charmy",
+                currentAvatarGo,
+                currentPoseIndex);
+            int playerPoseIndex = -1;
+            if (playerAvatarGo != null)
+            {
+                worldPoseIndices.TryGetValue(
+                    playerAvatarGo,
+                    out playerPoseIndex);
+            }
+            AppendCharacterState(
+                summary,
+                "jojo",
+                playerAvatarGo,
+                playerPoseIndex);
+            foreach (KeyValuePair<string, GameObject>
+                pair in worldAvatars)
+            {
+                AppendCharacterState(
+                    summary,
+                    pair.Key,
+                    pair.Value,
+                    worldPoseIndices.TryGetValue(
+                        pair.Value,
+                        out int poseIndex)
+                        ? poseIndex
+                        : -1);
+            }
+            return summary.ToString();
+        }
+
+        private void AppendCharacterState(
+            StringBuilder summary,
+            string characterId,
+            GameObject avatar,
+            int poseIndex)
+        {
+            if (summary == null ||
+                avatar == null ||
+                !avatar.activeInHierarchy)
+            {
+                return;
+            }
+
+            Vector3 position =
+                avatar.transform.position;
+            string pose =
+                poseIndex >= 0 &&
+                poseIndex < loadedOptionalPoses.Count
+                    ? loadedOptionalPoses[poseIndex].name
+                    : "unposed";
+            summary.Append(
+                $"\n{characterId}: position=({position.x:F1}," +
+                $"{position.y:F1},{position.z:F1}); pose={pose}");
+        }
+
+        public bool SetCharacterPoseByName(
+            string characterId,
+            string poseName)
+        {
+            GameObject avatar =
+                ResolveCharacterById(
+                    characterId);
+            int poseIndex =
+                FindPoseIndex(
+                    poseName);
+            if (avatar == null ||
+                poseIndex < 0)
+            {
+                return false;
+            }
+
+            if (avatar == currentAvatarGo)
+            {
+                GameObject previousSelection =
+                    selectedCharacterGo;
+                selectedCharacterGo = null;
+                SetPose(poseIndex);
+                selectedCharacterGo =
+                    previousSelection;
+                return true;
+            }
+
+            SetWorldCharacterPose(
+                avatar,
+                poseIndex);
+            return true;
+        }
+
+        private GameObject ResolveCharacterById(
+            string characterId)
+        {
+            if (string.IsNullOrWhiteSpace(
+                    characterId))
+            {
+                return currentAvatarGo;
+            }
+            if (characterId.Equals(
+                    "charmy",
+                    StringComparison.OrdinalIgnoreCase) ||
+                characterId.Equals(
+                    "charmy jarvis",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return currentAvatarGo;
+            }
+            if (characterId.Equals(
+                    "jojo",
+                    StringComparison.OrdinalIgnoreCase) ||
+                characterId.Equals(
+                    "jojo jarvis",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return playerAvatarGo;
+            }
+            worldAvatars.TryGetValue(
+                characterId,
+                out GameObject avatar);
+            if (avatar == null)
+            {
+                string normalized =
+                    characterId.Trim()
+                        .ToLowerInvariant()
+                        .Replace(
+                            "_jarvis",
+                            string.Empty)
+                        .Replace(
+                            " jarvis",
+                            string.Empty);
+                foreach (KeyValuePair<string, GameObject>
+                    pair in worldAvatars)
+                {
+                    string candidate =
+                        pair.Key.ToLowerInvariant()
+                            .Replace(
+                                "_jarvis",
+                                string.Empty)
+                            .Replace(
+                                " jarvis",
+                                string.Empty);
+                    if (candidate == normalized)
+                    {
+                        avatar = pair.Value;
+                        break;
+                    }
+                }
+            }
+            return avatar;
+        }
+
+        private string GetCharacterId(
+            GameObject avatar)
+        {
+            if (avatar == currentAvatarGo)
+            {
+                return "charmy";
+            }
+            if (avatar == playerAvatarGo)
+            {
+                return "jojo";
+            }
+            foreach (KeyValuePair<string, GameObject>
+                pair in worldAvatars)
+            {
+                if (pair.Value == avatar)
+                {
+                    return pair.Key;
+                }
+            }
+            return avatar != null
+                ? avatar.name
+                : null;
+        }
+
+        private CharacterSpeechBubble RegisterSpeechBubble(
+            GameObject avatar,
+            string message)
+        {
+            if (avatar == null)
+            {
+                return null;
+            }
+
+            CharacterSpeechBubble bubble =
+                avatar.GetComponent<
+                    CharacterSpeechBubble>();
+            if (bubble == null)
+            {
+                bubble =
+                    avatar.AddComponent<
+                        CharacterSpeechBubble>();
+            }
+            bubble.SetMessage(message);
+            bubble.SetSpeaking(false);
+            bubble.SetBubbleVisible(
+                speechBubblesVisible);
+            if (!speechBubbles.Contains(bubble))
+            {
+                speechBubbles.Add(bubble);
+            }
+            return bubble;
+        }
+
+        public void PlayMouthVolume(float volume)
+        {
+            float weight =
+                Mathf.Clamp01(volume * 2.0f);
+            if (activeSpeakingAvatar != null)
+            {
+                ApplyMouthWeight(
+                    activeSpeakingAvatar,
+                    weight);
+                return;
+            }
+
+            if (!isUsingCustomVrm &&
+                mouthTransform != null)
             {
                 float scaleY = Mathf.Lerp(0.04f, 0.35f, volume * 3.5f);
                 float scaleX = Mathf.Lerp(0.22f, 0.32f, volume * 1.5f);
                 mouthTransform.localScale = new Vector3(scaleX, scaleY, 0.05f);
+            }
+        }
+
+        private void ApplyMouthWeight(
+            GameObject avatar,
+            float weight)
+        {
+            if (avatar == null)
+            {
+                return;
+            }
+
+            float clamped =
+                Mathf.Clamp01(weight);
+            Vrm10Instance instance =
+                avatar.GetComponent<Vrm10Instance>();
+            if (instance?.Runtime?.Expression != null)
+            {
+                instance.Runtime.Expression.SetWeight(
+                    ExpressionKey.Aa,
+                    clamped);
+            }
+
+            if (avatar != currentAvatarGo)
+            {
+                return;
+            }
+
+            currentLipSyncWeight = clamped;
+            if (instance?.Runtime?.Expression == null &&
+                vrmProxy != null)
+            {
+                vrmProxy.ImmediatelySetValue(
+                    BlendShapeKey.CreateFromPreset(
+                        BlendShapePreset.A),
+                    clamped);
+            }
+            if (fallbackFaceRenderer != null &&
+                fallbackMouthBlendshapeIdx != -1)
+            {
+                fallbackFaceRenderer
+                    .SetBlendShapeWeight(
+                        fallbackMouthBlendshapeIdx,
+                        clamped * 100f);
             }
         }
 
@@ -2124,7 +3867,9 @@ namespace AICompanion.Services
             isSpeaking = speaking;
             if (!speaking)
             {
-                currentLipSyncWeight = 0f;
+                ApplyMouthWeight(
+                    activeSpeakingAvatar,
+                    0f);
                 SetExpression("neutral", 1f);
             }
         }
@@ -2167,12 +3912,117 @@ namespace AICompanion.Services
                 return;
             }
 
+            if (selectedCharacterGo != null &&
+                selectedCharacterGo != currentAvatarGo)
+            {
+                CycleWorldCharacterPose(
+                    selectedCharacterGo);
+                return;
+            }
+
             int nextIndex =
                 currentPoseIndex < 0
                     ? 0
                     : (currentPoseIndex + 1) % TotalPoses;
 
             SetPose(nextIndex);
+        }
+
+        private void CycleWorldCharacterPose(GameObject avatar)
+        {
+            if (avatar == null || TotalPoses == 0)
+            {
+                return;
+            }
+
+            int currentIndex =
+                worldPoseIndices.TryGetValue(
+                    avatar,
+                    out int storedIndex)
+                    ? storedIndex
+                    : -1;
+
+            for (int offset = 1;
+                 offset <= TotalPoses;
+                 offset++)
+            {
+                int candidate =
+                    (currentIndex + offset) %
+                    TotalPoses;
+                CustomPose pose =
+                    loadedOptionalPoses[candidate];
+                if (string.IsNullOrWhiteSpace(
+                        pose.resourcePath))
+                {
+                    continue;
+                }
+
+                SetWorldCharacterPose(
+                    avatar,
+                    candidate);
+                return;
+            }
+        }
+
+        private void SetWorldCharacterPose(
+            GameObject avatar,
+            int requestedIndex)
+        {
+            if (avatar == null || TotalPoses == 0)
+            {
+                return;
+            }
+
+            StopSatelliteArrival(avatar);
+            avatar.GetComponent<
+                    PlayerLocomotionAnimator>()
+                ?.SetPlaybackActive(false);
+
+            int startIndex =
+                Mathf.Clamp(
+                    requestedIndex,
+                    0,
+                    TotalPoses - 1);
+            for (int offset = 0;
+                 offset < TotalPoses;
+                 offset++)
+            {
+                int candidate =
+                    (startIndex + offset) %
+                    TotalPoses;
+                CustomPose pose =
+                    loadedOptionalPoses[candidate];
+                if (string.IsNullOrWhiteSpace(
+                        pose.resourcePath))
+                {
+                    continue;
+                }
+
+                RuntimeHumanoidPosePlayer player =
+                    avatar.GetComponent<
+                        RuntimeHumanoidPosePlayer>();
+                if (player == null)
+                {
+                    player =
+                        avatar.AddComponent<
+                            RuntimeHumanoidPosePlayer>();
+                }
+
+                if (player.TryLoadFavoritePose(
+                        pose.resourcePath))
+                {
+                    float poseSurfaceY =
+                        avatar == playerAvatarGo
+                            ? avatar.transform.position.y
+                            : GetSeatingSurfaceY();
+                    player.SetPoseActive(
+                        true,
+                        poseSurfaceY);
+                    worldPoseIndices[avatar] =
+                        candidate;
+                }
+                return;
+            }
         }
 
         private void OnDestroy()

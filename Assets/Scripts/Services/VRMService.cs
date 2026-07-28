@@ -129,6 +129,98 @@ namespace AICompanion.Services
             implementation?.SetAnimationEnabled(enabled);
         }
 
+        public void SetSpeechBubblesVisible(bool visible)
+        {
+            implementation?.SetSpeechBubblesVisible(
+                visible);
+        }
+
+        public void SetSpeechBubbleMessage(string message)
+        {
+            implementation?.SetSpeechBubbleMessage(
+                message);
+        }
+
+        public List<string> GetAvailableSatellites()
+        {
+            return implementation != null
+                ? implementation.GetAvailableSatellites()
+                : EmptyPoses;
+        }
+
+        public bool CallSatellite(string satelliteId)
+        {
+            return implementation != null &&
+                   implementation.CallSatellite(
+                       satelliteId);
+        }
+
+        public void UndoLastPlacement()
+        {
+            implementation?.UndoLastPlacement();
+        }
+
+        public void WhistleForCamera()
+        {
+            implementation?.WhistleForCamera();
+        }
+
+        public void SetCameraAttentionLocked(bool locked)
+        {
+            implementation?.SetCameraAttentionLocked(
+                locked);
+        }
+
+        public void FocusSelectedCharacterForConversation()
+        {
+            implementation
+                ?.FocusSelectedCharacterForConversation();
+        }
+
+        public string GetPrimaryConversationCharacter()
+        {
+            return implementation
+                ?.GetPrimaryConversationCharacter();
+        }
+
+        public List<string>
+            GetConversationCharactersInFrame()
+        {
+            return implementation != null
+                ? implementation
+                    .GetConversationCharactersInFrame()
+                : EmptyPoses;
+        }
+
+        public void SetCharacterSpeech(
+            string characterId,
+            string message,
+            bool speaking)
+        {
+            implementation?.SetCharacterSpeech(
+                characterId,
+                message,
+                speaking);
+        }
+
+        public string GetWorldStateSummary()
+        {
+            return implementation != null
+                ? implementation.GetWorldStateSummary()
+                : string.Empty;
+        }
+
+        public bool SetCharacterPoseByName(
+            string characterId,
+            string poseName)
+        {
+            return implementation != null &&
+                   implementation
+                       .SetCharacterPoseByName(
+                           characterId,
+                           poseName);
+        }
+
         public void CyclePose()
         {
             implementation?.CyclePose();

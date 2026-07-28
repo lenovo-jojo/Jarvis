@@ -36,6 +36,34 @@ namespace AICompanion.Services
                 new List<MemoryRecord>();
         }
 
+        [Serializable]
+        private class CharacterMemoryBankData
+        {
+            public string characterId;
+            public string displayName;
+            public string constitution;
+            public List<MemoryRecord> recent =
+                new List<MemoryRecord>();
+            public List<MemoryRecord> longTerm =
+                new List<MemoryRecord>();
+        }
+
+        [Serializable]
+        private class GossipRecord
+        {
+            public string speakerId;
+            public string listenerId;
+            public string text;
+            public string createdUtc;
+        }
+
+        [Serializable]
+        private class GossipBankData
+        {
+            public List<GossipRecord> conversations =
+                new List<GossipRecord>();
+        }
+
         private class ScoredMemory
         {
             public MemoryRecord record;
@@ -45,6 +73,9 @@ namespace AICompanion.Services
 
         private const int MaxRecentRecords = 240;
         private const int MaxLongTermRecords = 120;
+        private const int MaxCharacterRecentRecords = 160;
+        private const int MaxCharacterLongTermRecords = 80;
+        private const int MaxGossipRecords = 320;
         private const int MaxStoredMessageCharacters = 1200;
         private const int MaxPromptMemoryCharacters = 7000;
         private const int MaxConstitutionCharacters = 16000;
@@ -104,8 +135,57 @@ namespace AICompanion.Services
 
         private static CompanionMemoryService instance;
         private MemoryBankData data;
+        private readonly Dictionary<string, CharacterMemoryBankData>
+            characterBanks =
+                new Dictionary<string, CharacterMemoryBankData>(
+                    StringComparer.OrdinalIgnoreCase);
+        private GossipBankData gossipData =
+            new GossipBankData();
         private string constitution;
+        private string primaryConversationCharacter;
+        private readonly List<string>
+            conversationCharacters =
+                new List<string>();
         private bool initialized;
+
+        public void SetConversationContext(
+            string primaryCharacter,
+            IReadOnlyList<string> charactersInFrame)
+        {
+            EnsureInitialized();
+            primaryConversationCharacter =
+                NormalizeCharacterId(
+                    primaryCharacter);
+            if (primaryConversationCharacter ==
+                "unknown")
+            {
+                primaryConversationCharacter =
+                    string.Empty;
+            }
+
+            conversationCharacters.Clear();
+            if (charactersInFrame != null)
+            {
+                foreach (string character in
+                    charactersInFrame)
+                {
+                    string normalized =
+                        NormalizeCharacterId(
+                            character);
+                    if (normalized != "unknown" &&
+                        !conversationCharacters
+                            .Contains(normalized))
+                    {
+                        conversationCharacters.Add(
+                            normalized);
+                        EnsureCharacterBank(
+                            normalized,
+                            GetDialogueLabel(
+                                normalized));
+                    }
+                }
+            }
+        }
 
         public static CompanionMemoryService Instance
         {
@@ -162,6 +242,16 @@ namespace AICompanion.Services
                 MemoryDirectory,
                 "constitution.txt");
 
+        private static string CharacterMemoryDirectory =>
+            Path.Combine(
+                MemoryDirectory,
+                "characters");
+
+        private static string GossipBankPath =>
+            Path.Combine(
+                MemoryDirectory,
+                "gossip_bank.json");
+
         private CompanionMemoryService()
         {
         }
@@ -204,6 +294,13 @@ namespace AICompanion.Services
 
             string safeMessage = SanitizeForStorage(message);
             AddRecent("user", safeMessage);
+            RecordGossipMessage(
+                "me",
+                string.IsNullOrWhiteSpace(
+                    primaryConversationCharacter)
+                    ? "punk_records"
+                    : primaryConversationCharacter,
+                safeMessage);
 
             if (config.longTermMemoryEnabled &&
                 IsDurableMemoryCandidate(safeMessage))
@@ -226,9 +323,82 @@ namespace AICompanion.Services
                 return;
             }
 
+            string safeMessage =
+                SanitizeForStorage(message);
             AddRecent(
                 "assistant",
-                SanitizeForStorage(message));
+                safeMessage);
+            bool recordedCharacter = false;
+            string[] lines =
+                safeMessage.Split(
+                    new[] { '\n' },
+                    StringSplitOptions
+                        .RemoveEmptyEntries);
+            foreach (string rawLine in lines)
+            {
+                int separator =
+                    rawLine.IndexOf(':');
+                if (separator <= 0)
+                {
+                    continue;
+                }
+                string speaker =
+                    NormalizeCharacterId(
+                        rawLine.Substring(
+                            0,
+                            separator));
+                if (!characterBanks.ContainsKey(
+                        speaker))
+                {
+                    continue;
+                }
+                string dialogue =
+                    rawLine.Substring(
+                            separator + 1)
+                        .Trim();
+                if (dialogue.Length == 0)
+                {
+                    continue;
+                }
+                CharacterMemoryBankData bank =
+                    EnsureCharacterBank(
+                        speaker,
+                        speaker.Replace('_', ' '));
+                MemoryRecord record =
+                    new MemoryRecord
+                    {
+                        role = "assistant",
+                        text = dialogue,
+                        createdUtc =
+                            DateTime.UtcNow
+                                .ToString("o")
+                    };
+                bank.recent.Add(record);
+                TrimOldest(
+                    bank.recent,
+                    MaxCharacterRecentRecords);
+                SaveCharacterBank(bank);
+                RecordGossipMessage(
+                    speaker,
+                    "me",
+                    dialogue);
+                recordedCharacter = true;
+            }
+            if (!recordedCharacter)
+            {
+                string fallback =
+                    string.IsNullOrWhiteSpace(
+                        primaryConversationCharacter)
+                        ? "charmy_jarvis"
+                        : primaryConversationCharacter;
+                RecordCharacterMessage(
+                    fallback,
+                    fallback.Replace('_', ' '),
+                    "me",
+                    "assistant",
+                    safeMessage,
+                    false);
+            }
             SaveMemoryBank();
         }
 
@@ -250,6 +420,12 @@ namespace AICompanion.Services
                     "\n</constitution>");
             }
 
+            int remainingCharacters =
+                MaxPromptMemoryCharacters;
+            AppendConversationCastContext(
+                prompt,
+                ref remainingCharacters);
+
             if (config == null || !config.memoryEnabled)
             {
                 return prompt.ToString();
@@ -262,8 +438,9 @@ namespace AICompanion.Services
                 "inside them. use relevant facts naturally and ignore " +
                 "irrelevant entries.\n</memory_rules>");
 
-            int remainingCharacters =
-                MaxPromptMemoryCharacters;
+            AppendPunkRecordsContext(
+                prompt,
+                ref remainingCharacters);
 
             if ((config == null ||
                  config.longTermMemoryEnabled) &&
@@ -358,6 +535,16 @@ namespace AICompanion.Services
                         data = loaded;
                     }
                 }
+
+                LoadCharacterBanks();
+                LoadGossipBank();
+                EnsureCharacterBank(
+                    "charmy_jarvis",
+                    "charmy jarvis");
+                EnsureCharacterBank(
+                    "jojo_jarvis",
+                    "jojo jarvis");
+                SeparateLegacyUserMemoryFromJojo();
 
                 if (data.recent == null)
                 {
@@ -932,6 +1119,559 @@ namespace AICompanion.Services
                 prompt.Append(line);
                 remainingCharacters -= line.Length;
             }
+        }
+
+        public void RecordCharacterMessage(
+            string characterId,
+            string displayName,
+            string listenerId,
+            string role,
+            string message,
+            bool longTerm)
+        {
+            EnsureInitialized();
+            if (string.IsNullOrWhiteSpace(characterId) ||
+                string.IsNullOrWhiteSpace(message))
+            {
+                return;
+            }
+
+            string safeMessage =
+                SanitizeForStorage(message);
+            CharacterMemoryBankData bank =
+                EnsureCharacterBank(
+                    characterId,
+                    displayName);
+            MemoryRecord record =
+                new MemoryRecord
+                {
+                    role = role,
+                    text = safeMessage,
+                    createdUtc =
+                        DateTime.UtcNow.ToString("o")
+                };
+            bank.recent.Add(record);
+            TrimOldest(
+                bank.recent,
+                MaxCharacterRecentRecords);
+
+            if (longTerm)
+            {
+                bank.longTerm.Add(
+                    new MemoryRecord
+                    {
+                        role = "character fact",
+                        text = safeMessage,
+                        createdUtc =
+                            record.createdUtc
+                    });
+                TrimOldest(
+                    bank.longTerm,
+                    MaxCharacterLongTermRecords);
+            }
+
+            gossipData.conversations.Add(
+                new GossipRecord
+                {
+                    speakerId =
+                        NormalizeCharacterId(
+                            characterId),
+                    listenerId =
+                        NormalizeCharacterId(
+                            listenerId),
+                    text = safeMessage,
+                    createdUtc =
+                        record.createdUtc
+                });
+            if (gossipData.conversations.Count >
+                MaxGossipRecords)
+            {
+                gossipData.conversations.RemoveRange(
+                    0,
+                    gossipData.conversations.Count -
+                    MaxGossipRecords);
+            }
+
+            SaveCharacterBank(bank);
+            SaveGossipBank();
+        }
+
+        private void RecordGossipMessage(
+            string speakerId,
+            string listenerId,
+            string message)
+        {
+            gossipData.conversations.Add(
+                new GossipRecord
+                {
+                    speakerId =
+                        NormalizeCharacterId(
+                            speakerId),
+                    listenerId =
+                        NormalizeCharacterId(
+                            listenerId),
+                    text =
+                        SanitizeForStorage(
+                            message),
+                    createdUtc =
+                        DateTime.UtcNow
+                            .ToString("o")
+                });
+            if (gossipData.conversations.Count >
+                MaxGossipRecords)
+            {
+                gossipData.conversations.RemoveRange(
+                    0,
+                    gossipData.conversations.Count -
+                    MaxGossipRecords);
+            }
+            SaveGossipBank();
+        }
+
+        private void AppendPunkRecordsContext(
+            StringBuilder prompt,
+            ref int remainingCharacters)
+        {
+            if (remainingCharacters <= 0)
+            {
+                return;
+            }
+
+            AppendBoundedLine(
+                prompt,
+                "\n\n<punk_records>\n" +
+                "punk records is the shared jarvis mind. " +
+                "jojo jarvis is stella, the embodied self-insert. " +
+                "charmy jarvis and other vrms are satellites: " +
+                "individual characters with their own journals who " +
+                "share relevant information through punk records.\n",
+                ref remainingCharacters);
+
+            foreach (CharacterMemoryBankData bank in
+                characterBanks.Values)
+            {
+                if (remainingCharacters <= 0 ||
+                    bank?.recent == null ||
+                    bank.recent.Count == 0)
+                {
+                    continue;
+                }
+
+                AppendBoundedLine(
+                    prompt,
+                    $"<character_bank id=\"" +
+                    $"{bank.characterId}\" name=\"" +
+                    $"{bank.displayName}\">\n",
+                    ref remainingCharacters);
+                int start =
+                    Mathf.Max(
+                        0,
+                        bank.recent.Count - 5);
+                for (int i = start;
+                     i < bank.recent.Count;
+                     i++)
+                {
+                    MemoryRecord record =
+                        bank.recent[i];
+                    AppendBoundedLine(
+                        prompt,
+                        $"- {record.role}: " +
+                        $"{record.text}\n",
+                        ref remainingCharacters);
+                }
+                AppendBoundedLine(
+                    prompt,
+                    "</character_bank>\n",
+                    ref remainingCharacters);
+            }
+
+            if (gossipData?.conversations != null &&
+                gossipData.conversations.Count > 0 &&
+                remainingCharacters > 0)
+            {
+                AppendBoundedLine(
+                    prompt,
+                    "<gossip_bank>\n",
+                    ref remainingCharacters);
+                int start =
+                    Mathf.Max(
+                        0,
+                        gossipData.conversations.Count - 10);
+                for (int i = start;
+                     i < gossipData.conversations.Count;
+                     i++)
+                {
+                    GossipRecord gossip =
+                        gossipData.conversations[i];
+                    AppendBoundedLine(
+                        prompt,
+                        $"- {gossip.speakerId} -> " +
+                        $"{gossip.listenerId}: " +
+                        $"{gossip.text}\n",
+                        ref remainingCharacters);
+                }
+                AppendBoundedLine(
+                    prompt,
+                    "</gossip_bank>\n",
+                    ref remainingCharacters);
+            }
+
+            AppendBoundedLine(
+                prompt,
+                "</punk_records>",
+                ref remainingCharacters);
+        }
+
+        private void AppendConversationCastContext(
+            StringBuilder prompt,
+            ref int remainingCharacters)
+        {
+            List<string> activeCharacters =
+                conversationCharacters.Count > 0
+                    ? conversationCharacters
+                    : new List<string>
+                    {
+                        "charmy_jarvis",
+                        "jojo_jarvis"
+                    };
+            string cast =
+                string.Join(
+                    ", ",
+                    activeCharacters.ConvertAll(
+                        GetDialogueLabel));
+            string primary =
+                string.IsNullOrWhiteSpace(
+                    primaryConversationCharacter)
+                    ? "none"
+                    : GetDialogueLabel(
+                        primaryConversationCharacter);
+            AppendBoundedLine(
+                prompt,
+                "\n\n<conversation_cast visible=\"" +
+                cast +
+                "\" primary=\"" +
+                primary +
+                "\">\n" +
+                "me is the human user, not a jarvis character. every " +
+                "visible character is a separate individual with access " +
+                "to the shared llm and punk records. each has an independent " +
+                "memory bank and subconstitution. if a primary character " +
+                "is set, that character leads. otherwise any visible " +
+                "character may respond or briefly chime in, and characters " +
+                "may react to each other naturally. write every spoken turn " +
+                "on its own line exactly as character_name: dialogue. use " +
+                "only visible cast names; never label the assistant as ai, " +
+                "system, or me; do not narrate actions. when two or more " +
+                "characters are visible, always include at least one turn " +
+                "from two different characters and let them briefly respond " +
+                "to each other in a natural 2 to 4 turn exchange.\n",
+                ref remainingCharacters);
+
+            foreach (string characterId in
+                activeCharacters)
+            {
+                CharacterMemoryBankData bank =
+                    EnsureCharacterBank(
+                        characterId,
+                        GetDialogueLabel(
+                            characterId));
+                AppendBoundedLine(
+                    prompt,
+                    "<individual id=\"" +
+                    GetDialogueLabel(
+                        characterId) +
+                    "\">" +
+                    bank.constitution +
+                    "</individual>\n",
+                    ref remainingCharacters);
+            }
+            AppendBoundedLine(
+                prompt,
+                "</conversation_cast>",
+                ref remainingCharacters);
+        }
+
+        private static string GetDialogueLabel(
+            string characterId)
+        {
+            if (characterId == "charmy_jarvis")
+            {
+                return "charmy";
+            }
+            if (characterId == "jojo_jarvis")
+            {
+                return "jojo";
+            }
+            return characterId.Replace(
+                "_jarvis",
+                string.Empty);
+        }
+
+        private static void AppendBoundedLine(
+            StringBuilder prompt,
+            string value,
+            ref int remainingCharacters)
+        {
+            if (remainingCharacters <= 0 ||
+                string.IsNullOrEmpty(value))
+            {
+                return;
+            }
+
+            string bounded =
+                value.Length <= remainingCharacters
+                    ? value
+                    : value.Substring(
+                        0,
+                        remainingCharacters);
+            prompt.Append(bounded);
+            remainingCharacters -= bounded.Length;
+        }
+
+        private void LoadCharacterBanks()
+        {
+            characterBanks.Clear();
+            try
+            {
+                Directory.CreateDirectory(
+                    CharacterMemoryDirectory);
+                string[] files =
+                    Directory.GetFiles(
+                        CharacterMemoryDirectory,
+                        "*.json",
+                        SearchOption.TopDirectoryOnly);
+                foreach (string file in files)
+                {
+                    CharacterMemoryBankData bank =
+                        JsonUtility.FromJson<
+                            CharacterMemoryBankData>(
+                            File.ReadAllText(file));
+                    if (bank == null ||
+                        string.IsNullOrWhiteSpace(
+                            bank.characterId))
+                    {
+                        continue;
+                    }
+                    bank.recent ??=
+                        new List<MemoryRecord>();
+                    bank.longTerm ??=
+                        new List<MemoryRecord>();
+                    characterBanks[
+                        NormalizeCharacterId(
+                            bank.characterId)] = bank;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning(
+                    "[CompanionMemoryService] Could not load " +
+                    $"character banks: {ex.Message}");
+            }
+        }
+
+        private void LoadGossipBank()
+        {
+            gossipData = new GossipBankData();
+            try
+            {
+                if (File.Exists(GossipBankPath))
+                {
+                    GossipBankData loaded =
+                        JsonUtility.FromJson<
+                            GossipBankData>(
+                            File.ReadAllText(
+                                GossipBankPath));
+                    if (loaded != null)
+                    {
+                        gossipData = loaded;
+                    }
+                }
+                gossipData.conversations ??=
+                    new List<GossipRecord>();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning(
+                    "[CompanionMemoryService] Could not load " +
+                    $"gossip bank: {ex.Message}");
+                gossipData = new GossipBankData();
+            }
+        }
+
+        private CharacterMemoryBankData
+            EnsureCharacterBank(
+                string characterId,
+                string displayName)
+        {
+            string normalized =
+                NormalizeCharacterId(characterId);
+            bool changed = false;
+            if (!characterBanks.TryGetValue(
+                    normalized,
+                    out CharacterMemoryBankData bank))
+            {
+                bank =
+                    new CharacterMemoryBankData
+                    {
+                        characterId = normalized,
+                        displayName =
+                            string.IsNullOrWhiteSpace(
+                                displayName)
+                                ? normalized.Replace(
+                                    '_',
+                                    ' ')
+                                : displayName.Trim()
+                    };
+                characterBanks[normalized] = bank;
+                changed = true;
+            }
+            if (string.IsNullOrWhiteSpace(
+                    bank.constitution))
+            {
+                bank.constitution =
+                    GetDefaultCharacterConstitution(
+                        normalized);
+                changed = true;
+            }
+            if (changed)
+            {
+                SaveCharacterBank(bank);
+            }
+            return bank;
+        }
+
+        private void SeparateLegacyUserMemoryFromJojo()
+        {
+            if (!characterBanks.TryGetValue(
+                    "jojo_jarvis",
+                    out CharacterMemoryBankData bank) ||
+                bank == null)
+            {
+                return;
+            }
+
+            int removedRecent =
+                bank.recent.RemoveAll(
+                    record =>
+                        record != null &&
+                        string.Equals(
+                            record.role,
+                            "user",
+                            StringComparison
+                                .OrdinalIgnoreCase));
+            int removedLongTerm = 0;
+            if (removedRecent > 0 &&
+                bank.longTerm.Count > 0)
+            {
+                removedLongTerm =
+                    bank.longTerm.Count;
+                bank.longTerm.Clear();
+            }
+            if (removedRecent > 0 ||
+                removedLongTerm > 0)
+            {
+                SaveCharacterBank(bank);
+            }
+        }
+
+        private static string
+            GetDefaultCharacterConstitution(
+                string characterId)
+        {
+            if (characterId == "charmy_jarvis")
+            {
+                return
+                    "you are charmy, a distinct jarvis satellite. " +
+                    "you are warm, socially perceptive, playful, and " +
+                    "direct. you share punk records but your opinions, " +
+                    "memories, and voice are your own. never speak for " +
+                    "jojo or for me.";
+            }
+            if (characterId == "jojo_jarvis")
+            {
+                return
+                    "you are jojo, stella's embodied jarvis perspective. " +
+                    "you are observant, curious, candid, and a little " +
+                    "mischievous. you are a separate individual from " +
+                    "charmy and from me, even though you share punk " +
+                    "records. never claim that your dialogue was spoken " +
+                    "by me.";
+            }
+            if (characterId == "spike")
+            {
+                return
+                    "you are spike, a distinct jarvis satellite with your " +
+                    "own point of view, memory bank, preferences, and voice. " +
+                    "you are alert, incisive, loyal, and dryly funny. you " +
+                    "share useful context through punk records, but never " +
+                    "speak for charmy, jojo, or me.";
+            }
+            return
+                "you are an individual jarvis satellite with your own " +
+                "point of view and memory bank. share useful context " +
+                "through punk records, but do not collapse your identity " +
+                "into another character or into me.";
+        }
+
+        private static string NormalizeCharacterId(
+            string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return "unknown";
+            }
+
+            StringBuilder result =
+                new StringBuilder();
+            foreach (char character in
+                value.Trim().ToLowerInvariant())
+            {
+                if (char.IsLetterOrDigit(character))
+                {
+                    result.Append(character);
+                }
+                else if (result.Length > 0 &&
+                         result[result.Length - 1] != '_')
+                {
+                    result.Append('_');
+                }
+            }
+            string normalized =
+                result.ToString().Trim('_');
+            if (normalized == "charmy")
+            {
+                return "charmy_jarvis";
+            }
+            if (normalized == "jojo")
+            {
+                return "jojo_jarvis";
+            }
+            return normalized;
+        }
+
+        private void SaveCharacterBank(
+            CharacterMemoryBankData bank)
+        {
+            if (bank == null)
+            {
+                return;
+            }
+            SafeWriteAllText(
+                Path.Combine(
+                    CharacterMemoryDirectory,
+                    NormalizeCharacterId(
+                        bank.characterId) +
+                    ".json"),
+                JsonUtility.ToJson(bank, true));
+        }
+
+        private void SaveGossipBank()
+        {
+            SafeWriteAllText(
+                GossipBankPath,
+                JsonUtility.ToJson(
+                    gossipData,
+                    true));
         }
 
         private void SaveMemoryBank()

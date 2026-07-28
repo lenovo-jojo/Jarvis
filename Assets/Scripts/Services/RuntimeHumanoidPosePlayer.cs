@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 using UnityEngine.Animations;
 using UnityEngine.Playables;
@@ -14,11 +15,25 @@ namespace AICompanion.Services
     [DefaultExecutionOrder(12000)]
     public sealed class RuntimeHumanoidPosePlayer : MonoBehaviour
     {
+        [Serializable]
+        private sealed class FavoritePoseData
+        {
+            public Vector3 bodyPosition;
+            public Quaternion bodyRotation;
+            public float[] muscles;
+        }
+
         private const string PoseResourcePath =
             "PicnicPoses/CrissCross";
+        private const string DefaultFavoritePosePath =
+            "CharacterPoses/criss cross/pose";
 
         private Animator animator;
         private AnimationClip poseClip;
+        private HumanPoseHandler humanPoseHandler;
+        private HumanPose favoritePose;
+        private HumanPose currentPose;
+        private bool favoritePoseReady;
         private AvatarMask bodyMask;
         private PlayableGraph graph;
         private AnimationClipPlayable clipPlayable;
@@ -31,21 +46,68 @@ namespace AICompanion.Services
         private void Awake()
         {
             animator = GetComponent<Animator>();
-            poseClip = Resources.Load<AnimationClip>(
-                PoseResourcePath);
 
             if (animator == null ||
-                !animator.isHuman ||
-                poseClip == null)
+                !animator.isHuman)
             {
                 Debug.LogError(
-                    "[CharacterPose] CrissCross must be a " +
-                    "Unity AnimationClip on a Humanoid avatar.");
+                    "[CharacterPose] Character Mode requires " +
+                    "a Humanoid avatar.");
                 enabled = false;
                 return;
             }
 
-            BuildGraph();
+            humanPoseHandler =
+                new HumanPoseHandler(
+                    animator.avatar,
+                    animator.transform);
+
+            if (!TryLoadFavoritePose(DefaultFavoritePosePath))
+            {
+                poseClip = Resources.Load<AnimationClip>(
+                    PoseResourcePath);
+                if (poseClip == null)
+                {
+                    Debug.LogError(
+                        "[CharacterPose] No usable criss-cross " +
+                        "favorite pose or AnimationClip was found.");
+                    enabled = false;
+                    return;
+                }
+
+                BuildGraph();
+            }
+        }
+
+        public bool TryLoadFavoritePose(string resourcePath)
+        {
+            TextAsset poseAsset =
+                Resources.Load<TextAsset>(resourcePath);
+            FavoritePoseData data =
+                poseAsset != null
+                    ? JsonUtility.FromJson<FavoritePoseData>(
+                        poseAsset.text)
+                    : null;
+
+            if (data == null ||
+                data.muscles == null ||
+                data.muscles.Length != HumanTrait.MuscleCount)
+            {
+                return false;
+            }
+
+            favoritePose = new HumanPose
+            {
+                bodyPosition = data.bodyPosition,
+                bodyRotation = data.bodyRotation,
+                muscles = (float[])data.muscles.Clone()
+            };
+            currentPose = new HumanPose
+            {
+                muscles = new float[HumanTrait.MuscleCount]
+            };
+            favoritePoseReady = true;
+            return true;
         }
 
         public void SetPoseActive(
@@ -114,25 +176,71 @@ namespace AICompanion.Services
 
         private void LateUpdate()
         {
-            if (!graphReady || !poseActive)
+            if (!poseActive)
             {
                 return;
             }
 
-            // The exported clip is a gentle loop. Let it advance normally,
-            // wrapping at the end, while evaluating after other avatar graphs.
-            double time =
-                poseClip.length > 0.001f
-                    ? Time.timeAsDouble % poseClip.length
-                    : 0d;
-            clipPlayable.SetTime(time);
-            graph.Evaluate(0f);
+            if (favoritePoseReady)
+            {
+                ApplyFavoritePose();
+            }
+            else if (graphReady)
+            {
+                // Retain the older looping clip as a fallback for projects
+                // that do not yet contain the favorite-pose library.
+                double time =
+                    poseClip.length > 0.001f
+                        ? Time.timeAsDouble % poseClip.length
+                        : 0d;
+                clipPlayable.SetTime(time);
+                graph.Evaluate(0f);
+            }
 
             if (groundingFrames > 0)
             {
                 GroundToBlanket();
                 groundingFrames--;
             }
+        }
+
+        private void ApplyFavoritePose()
+        {
+            humanPoseHandler.GetHumanPose(ref currentPose);
+
+            // Keep the live head/face aim from UniVRM while applying the
+            // favorited body pose to the rest of the humanoid.
+            for (int i = 0; i < HumanTrait.MuscleCount; i++)
+            {
+                string muscleName = HumanTrait.MuscleName[i];
+                if (!IsHeadMuscle(muscleName))
+                {
+                    currentPose.muscles[i] =
+                        favoritePose.muscles[i];
+                }
+            }
+
+            currentPose.bodyPosition =
+                favoritePose.bodyPosition;
+            currentPose.bodyRotation =
+                favoritePose.bodyRotation;
+            humanPoseHandler.SetHumanPose(ref currentPose);
+        }
+
+        private static bool IsHeadMuscle(string muscleName)
+        {
+            return muscleName.IndexOf(
+                       "Neck",
+                       StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   muscleName.IndexOf(
+                       "Head",
+                       StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   muscleName.IndexOf(
+                       "Eye",
+                       StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   muscleName.IndexOf(
+                       "Jaw",
+                       StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private void GroundToBlanket()
@@ -184,6 +292,8 @@ namespace AICompanion.Services
             {
                 Destroy(bodyMask);
             }
+
+            humanPoseHandler?.Dispose();
         }
     }
 }

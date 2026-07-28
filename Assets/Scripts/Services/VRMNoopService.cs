@@ -50,6 +50,26 @@ namespace AICompanion.Services
         public void PlayMouthVolume(float volume) { }
         public void SetSpeaking(bool speaking) { }
         public void SetAnimationEnabled(bool enabled) { }
+        public void SetSpeechBubblesVisible(bool visible) { }
+        public void SetSpeechBubbleMessage(string message) { }
+        public List<string> GetAvailableSatellites() => EmptyPoses;
+        public bool CallSatellite(string satelliteId) => false;
+        public void UndoLastPlacement() { }
+        public void WhistleForCamera() { }
+        public void SetCameraAttentionLocked(bool locked) { }
+        public void FocusSelectedCharacterForConversation() { }
+        public string GetPrimaryConversationCharacter() => null;
+        public List<string> GetConversationCharactersInFrame() =>
+            EmptyPoses;
+        public void SetCharacterSpeech(
+            string characterId,
+            string message,
+            bool speaking) { }
+        public string GetWorldStateSummary() =>
+            string.Empty;
+        public bool SetCharacterPoseByName(
+            string characterId,
+            string poseName) => false;
         public void CyclePose() { }
 
         public List<string> GetAvailablePoses() => EmptyPoses;

@@ -1,0 +1,22 @@
+{
+  "poses": [
+    { "name": "business stand", "resourcePath": "CharacterPoses/business stand/pose" },
+    { "name": "confident stand", "resourcePath": "CharacterPoses/confident stand/pose" },
+    { "name": "cool kid sit", "resourcePath": "CharacterPoses/cool kid sit/pose" },
+    { "name": "criss cross", "resourcePath": "CharacterPoses/criss cross/pose" },
+    { "name": "criss cross sit", "resourcePath": "CharacterPoses/criss cross sit/pose" },
+    { "name": "feets to the side sit", "resourcePath": "CharacterPoses/feets to the side sit/pose" },
+    { "name": "floor stretchin sit", "resourcePath": "CharacterPoses/floor stretchin sit/pose" },
+    { "name": "heehee stand", "resourcePath": "CharacterPoses/heehee stand/pose" },
+    { "name": "huhhhh idk stand", "resourcePath": "CharacterPoses/huhhhh idk stand/pose" },
+    { "name": "idea seated", "resourcePath": "CharacterPoses/idea seated/pose" },
+    { "name": "knees to chest sideways", "resourcePath": "CharacterPoses/knees to chest sideways/pose" },
+    { "name": "pow pow", "resourcePath": "CharacterPoses/pow pow/pose" },
+    { "name": "salute", "resourcePath": "CharacterPoses/salute/pose" },
+    { "name": "seat", "resourcePath": "CharacterPoses/seat/pose" },
+    { "name": "sittin knee hugging", "resourcePath": "CharacterPoses/sittin knee hugging/pose" },
+    { "name": "so heres the thing", "resourcePath": "CharacterPoses/so heres the thing/pose" },
+    { "name": "sporty squat", "resourcePath": "CharacterPoses/sporty squat/pose" },
+    { "name": "wave", "resourcePath": "CharacterPoses/wave/pose" }
+  ]
+}

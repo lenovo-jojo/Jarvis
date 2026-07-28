@@ -78,6 +78,41 @@ namespace AICompanion.Services
         {
         }
 
+        public void SetSpeechBubblesVisible(bool visible)
+        {
+        }
+
+        public void SetSpeechBubbleMessage(string message)
+        {
+        }
+
+        public List<string> GetAvailableSatellites()
+        {
+            return EmptyPoses;
+        }
+
+        public bool CallSatellite(string satelliteId)
+        {
+            return false;
+        }
+
+        public void UndoLastPlacement() { }
+        public void WhistleForCamera() { }
+        public void SetCameraAttentionLocked(bool locked) { }
+        public void FocusSelectedCharacterForConversation() { }
+        public string GetPrimaryConversationCharacter() => null;
+        public List<string> GetConversationCharactersInFrame() =>
+            EmptyPoses;
+        public void SetCharacterSpeech(
+            string characterId,
+            string message,
+            bool speaking) { }
+        public string GetWorldStateSummary() =>
+            string.Empty;
+        public bool SetCharacterPoseByName(
+            string characterId,
+            string poseName) => false;
+
         public void CyclePose()
         {
         }

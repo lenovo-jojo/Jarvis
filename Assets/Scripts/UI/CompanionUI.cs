@@ -37,6 +37,7 @@ namespace AICompanion.UI
         [SerializeField] private Toggle animationToggle;
         [SerializeField] private Toggle micToggle;
         [SerializeField] private Toggle exploreModeToggle;
+        [SerializeField] private Toggle speechBubbleToggle;
         [SerializeField] private Button cyclePoseButton;
         [SerializeField] private TMPro.TMP_Dropdown poseDropdown;
         [SerializeField] private RawImage webcamPreviewImage;
@@ -56,12 +57,16 @@ namespace AICompanion.UI
         public event Action<bool> OnAnimationToggleChanged;
         public event Action<bool> OnMicToggleChanged;
         public event Action<bool> OnExploreModeToggleChanged;
+        public event Action<bool> OnSpeechBubbleToggleChanged;
         public event Action OnCyclePoseRequested;
         public event Action OnSaveFrameRequested;
         public event Action OnLoadFrameRequested;
         public event Action<int> OnPoseSelected;
         public event Action<float> OnZoomInSliderChanged;
         public event Action<float> OnZoomOutSliderChanged;
+        public event Action OnSatellitePhoneOpened;
+        public event Action<string> OnSatelliteCalled;
+        public event Action OnWhistleRequested;
 
         public bool IsMicEnabled => micToggle != null && micToggle.isOn;
         public bool IsInputFocused => messageInputField != null && messageInputField.isFocused;
@@ -79,6 +84,8 @@ namespace AICompanion.UI
         private Button poseMenuButton;
         private Button poseRotationButton;
         private Button memorySettingsButton;
+        private Button satellitePhoneButton;
+        private Button whistleButton;
         private CanvasScaler responsiveCanvasScaler;
         private RectTransform safeAreaRoot;
         private RectTransform topControlStack;
@@ -89,6 +96,8 @@ namespace AICompanion.UI
         private RectTransform poseSelectionPanel;
         private RectTransform poseSelectionRowsRoot;
         private RectTransform memorySettingsPanel;
+        private RectTransform satellitePhonePanel;
+        private RectTransform satelliteRowsRoot;
         private TMP_InputField constitutionInput;
         private Toggle memoryEnabledToggle;
         private Toggle longTermMemoryToggle;
@@ -203,6 +212,13 @@ namespace AICompanion.UI
                 exploreModeToggle.onValueChanged.AddListener(
                     HandleCameraModeToggleChanged);
             }
+            if (speechBubbleToggle != null)
+            {
+                speechBubbleToggle.onValueChanged.AddListener(
+                    value =>
+                        OnSpeechBubbleToggleChanged?.Invoke(
+                            value));
+            }
             if (zoomInSlider != null)
             {
                 zoomInSlider.onValueChanged.AddListener((val) => OnZoomInSliderChanged?.Invoke(val));
@@ -224,7 +240,7 @@ namespace AICompanion.UI
 
             if (settingsPanel != null)
                 settingsPanel.SetActive(false);
-            AppendLog("System", "hi! :)");
+            AppendLog("Charmy", "hi! :)");
             UpdateConnectionStatus();
         }
 
@@ -304,7 +320,31 @@ namespace AICompanion.UI
                     exploreModeToggle.SetIsOnWithoutNotify(false);
                     SetToggleText(
                         exploreModeToggle,
-                        "character mode");
+                        "tv mode");
+                }
+            }
+
+            if (speechBubbleToggle == null)
+            {
+                Toggle sourceToggle =
+                    micToggle != null
+                        ? micToggle
+                        : webcamToggle;
+                if (sourceToggle != null)
+                {
+                    GameObject bubbleObject =
+                        Instantiate(
+                            sourceToggle.gameObject,
+                            sourceToggle.transform.parent);
+                    bubbleObject.name =
+                        "SpeechBubbleToggle";
+                    speechBubbleToggle =
+                        bubbleObject.GetComponent<Toggle>();
+                    speechBubbleToggle.SetIsOnWithoutNotify(
+                        true);
+                    SetToggleText(
+                        speechBubbleToggle,
+                        "speech bubbles");
                 }
             }
 
@@ -579,6 +619,8 @@ namespace AICompanion.UI
             ConfigurePoseShortcutButton();
             BuildPoseMenuControl();
             BuildMemorySettingsControl();
+            BuildSatellitePhoneControl();
+            BuildWhistleControl();
             MoveToQuickActions(webcamToggle, quickActions);
             MoveToQuickActions(screenToggle, quickActions);
 
@@ -589,6 +631,12 @@ namespace AICompanion.UI
             if (micToggle != null)
             {
                 MoveToQuickActions(micToggle, quickActions);
+            }
+            if (speechBubbleToggle != null)
+            {
+                MoveToQuickActions(
+                    speechBubbleToggle,
+                    quickActions);
             }
             ConfigureCameraModeToggle();
 
@@ -638,6 +686,193 @@ namespace AICompanion.UI
                 chatResizeHandle.gameObject,
                 EventTriggerType.Drag,
                 ResizeChatDock);
+        }
+
+        private void BuildSatellitePhoneControl()
+        {
+            satellitePhoneButton = CreateThemedButton(
+                "SatellitePhoneButton",
+                quickActions,
+                "phone",
+                new Color32(101, 182, 232, 255));
+            EnsureLayoutElement(
+                satellitePhoneButton.gameObject,
+                38f);
+            satellitePhoneButton.onClick.AddListener(
+                ToggleSatellitePhone);
+
+            satellitePhonePanel = CreatePanel(
+                "SatellitePhonePanel",
+                safeAreaRoot,
+                new Color32(239, 250, 246, 252));
+            satellitePhonePanel.SetAsLastSibling();
+
+            CreateLabel(
+                "SatellitePhoneTitle",
+                satellitePhonePanel,
+                "punk records // call a satellite",
+                20f,
+                new Color32(44, 78, 92, 255),
+                TextAlignmentOptions.Left,
+                new Vector2(0f, 1f),
+                new Vector2(1f, 1f),
+                new Vector2(-24f, -16f),
+                new Vector2(-92f, 38f));
+
+            Button closeButton = CreateThemedButton(
+                "CloseSatellitePhoneButton",
+                satellitePhonePanel,
+                "x",
+                new Color32(238, 174, 197, 255));
+            LayoutElement closeLayout =
+                closeButton.GetComponent<LayoutElement>();
+            closeLayout.ignoreLayout = true;
+            RectTransform closeRect =
+                closeButton.GetComponent<RectTransform>();
+            closeRect.anchorMin = Vector2.one;
+            closeRect.anchorMax = Vector2.one;
+            closeRect.pivot = Vector2.one;
+            closeRect.anchoredPosition =
+                new Vector2(-14f, -14f);
+            closeRect.sizeDelta =
+                new Vector2(40f, 40f);
+            closeButton.onClick.AddListener(
+                () => satellitePhonePanel.gameObject.SetActive(false));
+
+            GameObject rowsObject = new GameObject(
+                "SatelliteRows",
+                typeof(RectTransform),
+                typeof(VerticalLayoutGroup));
+            satelliteRowsRoot =
+                rowsObject.GetComponent<RectTransform>();
+            satelliteRowsRoot.SetParent(
+                satellitePhonePanel,
+                false);
+            satelliteRowsRoot.anchorMin = Vector2.zero;
+            satelliteRowsRoot.anchorMax = Vector2.one;
+            satelliteRowsRoot.offsetMin =
+                new Vector2(18f, 18f);
+            satelliteRowsRoot.offsetMax =
+                new Vector2(-18f, -68f);
+
+            VerticalLayoutGroup rowsLayout =
+                rowsObject.GetComponent<VerticalLayoutGroup>();
+            rowsLayout.spacing = 10f;
+            rowsLayout.childAlignment =
+                TextAnchor.UpperCenter;
+            rowsLayout.childControlWidth = true;
+            rowsLayout.childControlHeight = true;
+            rowsLayout.childForceExpandWidth = true;
+            rowsLayout.childForceExpandHeight = false;
+
+            satellitePhonePanel.gameObject.SetActive(false);
+        }
+
+        private void BuildWhistleControl()
+        {
+            whistleButton = CreateThemedButton(
+                "WhistleButton",
+                quickActions,
+                "whistle",
+                new Color32(238, 174, 197, 255));
+            EnsureLayoutElement(
+                whistleButton.gameObject,
+                38f);
+            whistleButton.onClick.AddListener(
+                () => OnWhistleRequested?.Invoke());
+        }
+
+        private void ToggleSatellitePhone()
+        {
+            if (satellitePhonePanel == null)
+            {
+                return;
+            }
+
+            bool shouldOpen =
+                !satellitePhonePanel.gameObject.activeSelf;
+            if (shouldOpen)
+            {
+                OnSatellitePhoneOpened?.Invoke();
+                if (posePickerPanel != null)
+                    posePickerPanel.gameObject.SetActive(false);
+                if (poseSelectionPanel != null)
+                    poseSelectionPanel.gameObject.SetActive(false);
+                if (memorySettingsPanel != null)
+                    memorySettingsPanel.gameObject.SetActive(false);
+                satellitePhonePanel.SetAsLastSibling();
+            }
+            satellitePhonePanel.gameObject.SetActive(shouldOpen);
+        }
+
+        public void PopulateSatellitePhone(
+            IReadOnlyList<string> satelliteNames)
+        {
+            if (satelliteRowsRoot == null)
+            {
+                return;
+            }
+
+            for (int i = satelliteRowsRoot.childCount - 1;
+                 i >= 0;
+                 i--)
+            {
+                Destroy(
+                    satelliteRowsRoot.GetChild(i).gameObject);
+            }
+
+            if (satelliteNames == null ||
+                satelliteNames.Count == 0)
+            {
+                TMP_Text emptyLabel = CreateLabel(
+                    "NoSatellitesLabel",
+                    satelliteRowsRoot,
+                    "no satellites are available yet",
+                    17f,
+                    new Color32(91, 119, 128, 255),
+                    TextAlignmentOptions.Center,
+                    Vector2.zero,
+                    Vector2.one,
+                    Vector2.zero,
+                    Vector2.zero);
+                EnsureLayoutElement(
+                    emptyLabel.gameObject,
+                    52f);
+                return;
+            }
+
+            for (int i = 0;
+                 i < satelliteNames.Count;
+                 i++)
+            {
+                string satelliteId =
+                    satelliteNames[i];
+                if (string.IsNullOrWhiteSpace(
+                        satelliteId))
+                {
+                    continue;
+                }
+
+                string capturedId = satelliteId;
+                Button callButton = CreateThemedButton(
+                    $"CallSatellite{i}",
+                    satelliteRowsRoot,
+                    $"call {satelliteId}",
+                    i % 2 == 0
+                        ? new Color32(65, 196, 180, 255)
+                        : new Color32(101, 182, 232, 255));
+                EnsureLayoutElement(
+                    callButton.gameObject,
+                    48f);
+                callButton.onClick.AddListener(
+                    () =>
+                    {
+                        OnSatelliteCalled?.Invoke(
+                            capturedId);
+                        satellitePhonePanel.gameObject.SetActive(
+                            false);
+                    });
+            }
         }
 
         private void MoveImportVrmToSettings()
@@ -1595,8 +1830,8 @@ namespace AICompanion.UI
             SetToggleText(
                 exploreModeToggle,
                 exploreModeToggle.isOn
-                    ? "explore mode"
-                    : "character mode");
+                    ? "pov mode"
+                    : "tv mode");
         }
 
         private void MoveToQuickActions(
@@ -1636,15 +1871,19 @@ namespace AICompanion.UI
             SetToggleText(screenToggle, "screen");
             SetToggleText(micToggle, "microphone");
             SetToggleText(
+                speechBubbleToggle,
+                "speech bubbles");
+            SetToggleText(
                 exploreModeToggle,
                 exploreModeToggle != null &&
                 exploreModeToggle.isOn
-                    ? "explore mode"
-                    : "character mode");
+                    ? "pov mode"
+                    : "tv mode");
             StyleToggle(webcamToggle);
             StyleToggle(screenToggle);
             StyleToggle(animationToggle);
             StyleToggle(micToggle);
+            StyleToggle(speechBubbleToggle);
             StyleToggle(exploreModeToggle);
 
             if (settingsPanel != null)
@@ -1714,8 +1953,8 @@ namespace AICompanion.UI
             SetToggleText(
                 exploreModeToggle,
                 exploreEnabled
-                    ? "explore mode"
-                    : "character mode");
+                    ? "pov mode"
+                    : "tv mode");
             OnExploreModeToggleChanged?.Invoke(exploreEnabled);
         }
 
@@ -2793,6 +3032,24 @@ namespace AICompanion.UI
                 memorySettingsPanel.sizeDelta =
                     new Vector2(760f, 610f);
             }
+
+            if (satellitePhonePanel != null)
+            {
+                satellitePhonePanel.anchorMin =
+                    new Vector2(1f, 1f);
+                satellitePhonePanel.anchorMax =
+                    new Vector2(1f, 1f);
+                satellitePhonePanel.pivot =
+                    new Vector2(1f, 1f);
+                satellitePhonePanel.anchoredPosition =
+                    new Vector2(
+                        isPortrait ? -18f : -28f,
+                        isPortrait ? -286f : -300f);
+                satellitePhonePanel.sizeDelta =
+                    new Vector2(
+                        isPortrait ? 330f : 390f,
+                        300f);
+            }
         }
 
         private void PositionChatMenuToggle()
@@ -3455,10 +3712,27 @@ namespace AICompanion.UI
 
         public void AppendLog(string sender, string message)
         {
-            string color = sender == "AI"
+            bool isCharmy =
+                sender.Equals(
+                    "AI",
+                    StringComparison.OrdinalIgnoreCase) ||
+                sender.Equals(
+                    "Charmy",
+                    StringComparison.OrdinalIgnoreCase);
+            bool isSystem =
+                sender.Equals(
+                    "System",
+                    StringComparison.OrdinalIgnoreCase);
+            string color = isCharmy
                 ? "#E76F8B"
-                : (sender == "System" ? "#279D91" : "#457B9D");
-            string displaySender = sender.ToLowerInvariant();
+                : (isSystem ? "#279D91" : "#457B9D");
+            string displaySender = isCharmy
+                ? "charmy"
+                : sender.Equals(
+                    "You",
+                    StringComparison.OrdinalIgnoreCase)
+                    ? "me"
+                    : sender.ToLowerInvariant();
             chatLines.Add(
                 $"<b><color={color}>{displaySender}:</color></b> {message}");
             TrimChatHistory();
@@ -3473,7 +3747,7 @@ namespace AICompanion.UI
             }
 
             activeAiLineIndex = chatLines.Count;
-            chatLines.Add("<b><color=#E76F8B>ai:</color></b> ");
+            chatLines.Add("<b><color=#E76F8B>charmy:</color></b> ");
             TrimChatHistory();
             RefreshChatLog();
             aiTypingCoroutine = StartCoroutine(TypeAIOverTime(fullMessage, Mathf.Max(0.6f, durationSeconds)));
@@ -3490,7 +3764,7 @@ namespace AICompanion.UI
             if (activeAiLineIndex >= 0 && activeAiLineIndex < chatLines.Count)
             {
                 chatLines[activeAiLineIndex] =
-                    $"<b><color=#E76F8B>ai:</color></b> {finalMessage}";
+                    $"<b><color=#E76F8B>charmy:</color></b> {finalMessage}";
                 activeAiLineIndex = -1;
                 RefreshChatLog();
             }
@@ -3523,7 +3797,7 @@ namespace AICompanion.UI
                 if (activeAiLineIndex >= 0 && activeAiLineIndex < chatLines.Count)
                 {
                     chatLines[activeAiLineIndex] =
-                        $"<b><color=#E76F8B>ai:</color></b> {typed}";
+                        $"<b><color=#E76F8B>charmy:</color></b> {typed}";
                     RefreshChatLog();
                 }
 

@@ -42,6 +42,37 @@ namespace AICompanion.Services
 
         public IEnumerator SendMessageCoroutine(string userMessage, Texture2D screenshot, Texture2D webcamFeed, Action<string> onComplete, Action<string> onError)
         {
+            return SendMessageInternal(
+                userMessage,
+                screenshot,
+                webcamFeed,
+                true,
+                onComplete,
+                onError);
+        }
+
+        public IEnumerator SendDirectiveCoroutine(
+            string directive,
+            Action<string> onComplete,
+            Action<string> onError)
+        {
+            return SendMessageInternal(
+                directive,
+                null,
+                null,
+                false,
+                onComplete,
+                onError);
+        }
+
+        private IEnumerator SendMessageInternal(
+            string userMessage,
+            Texture2D screenshot,
+            Texture2D webcamFeed,
+            bool recordAsUserMemory,
+            Action<string> onComplete,
+            Action<string> onError)
+        {
             ServiceConfig config = ServiceConfig.Load();
             CompanionMemoryService memoryService =
                 CompanionMemoryService.Instance;
@@ -49,9 +80,12 @@ namespace AICompanion.Services
                 memoryService.BuildSystemPrompt(
                     userMessage,
                     config);
-            memoryService.RecordUserMessage(
-                userMessage,
-                config);
+            if (recordAsUserMemory)
+            {
+                memoryService.RecordUserMessage(
+                    userMessage,
+                    config);
+            }
 
             // Determine URL and API Key based on mode
             string baseUrl = config.isLocalMode ? config.llmBaseUrl : "https://api.openai.com/v1";

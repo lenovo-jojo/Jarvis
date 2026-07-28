@@ -16,16 +16,16 @@ namespace AICompanion.Services
             animaleseService = gameObject.AddComponent<AnimaleseVoiceService>();
         }
 
-        public IEnumerator GenerateSpeechCoroutine(string text, Action<AudioClip> onComplete, Action<string> onError)
+        public IEnumerator GenerateSpeechCoroutine(string characterId, string text, Action<AudioClip> onComplete, Action<string> onError)
         {
             ServiceConfig config = ServiceConfig.Load();
             if (config != null && config.elevenLabsModelId == "animalese.js")
             {
-                yield return animaleseService.GenerateSpeechCoroutine(text, onComplete, onError);
+                yield return animaleseService.GenerateSpeechCoroutine(characterId, text, onComplete, onError);
             }
             else
             {
-                yield return elevenLabsService.GenerateSpeechCoroutine(text, onComplete, onError);
+                yield return elevenLabsService.GenerateSpeechCoroutine(characterId, text, onComplete, onError);
             }
         }
     }
