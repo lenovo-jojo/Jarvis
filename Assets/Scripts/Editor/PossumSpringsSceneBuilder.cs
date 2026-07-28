@@ -13,7 +13,7 @@ namespace AICompanion.Editor
 {
     public static class PossumSpringsSceneBuilder
     {
-        private const int BuilderVersion = 6;
+        private const int BuilderVersion = 9;
         private const string BuilderVersionKey =
             "AICompanion.PossumSpringsBuilderVersion";
         private const string ModelPath =
@@ -151,9 +151,14 @@ namespace AICompanion.Editor
                 }
 
                 Vector3 spawnPosition =
-                    FindPlayableSpawn(town, bounds);
+                    FindParkingLotSpawn(town, bounds);
                 AddSpawnMarker(
                     root,
+                    "ParkingLotSpawn",
+                    spawnPosition);
+                AddSpawnMarker(
+                    root,
+                    "PlayerSpawn",
                     spawnPosition);
                 AddLighting(root);
                 AddOverviewCamera(
@@ -456,7 +461,7 @@ namespace AICompanion.Editor
                     Mathf.Max(10f, bounds.size.z));
         }
 
-        private static Vector3 FindPlayableSpawn(
+        private static Vector3 FindParkingLotSpawn(
             GameObject town,
             Bounds bounds)
         {
@@ -518,11 +523,20 @@ namespace AICompanion.Editor
                         if (hit.collider == null ||
                             !hit.collider.transform.IsChildOf(
                                 town.transform) ||
-                            hit.normal.y < 0.6f)
+                            hit.normal.y < 0.85f ||
+                            !HasStandingClearance(
+                                hit.point,
+                                town))
                         {
                             continue;
                         }
 
+                        int openAreaSamples =
+                            CountFlatAreaSamples(
+                                hit.point,
+                                town,
+                                rayStartY,
+                                rayDistance);
                         float horizontalDistance =
                             Vector2.Distance(
                                 new Vector2(x, z),
@@ -530,8 +544,9 @@ namespace AICompanion.Editor
                                     center.x,
                                     center.z));
                         float score =
-                            hit.point.y +
-                            horizontalDistance * 0.08f;
+                            -openAreaSamples * 1000f +
+                            (hit.point.y - bounds.min.y) * 20f +
+                            horizontalDistance * 0.03f;
                         if (score >= bestScore)
                         {
                             continue;
@@ -547,19 +562,167 @@ namespace AICompanion.Editor
             if (!found)
             {
                 Debug.LogWarning(
-                    "[PossumSprings] No central walkable " +
+                    "[PossumSprings] No open parking-lot " +
                     "surface was found; using the bounds center.");
+            }
+
+            Vector3 insetPoint =
+                bestPoint +
+                Vector3.forward * 6f;
+            if (TryFindSurfaceNearHeight(
+                    insetPoint,
+                    bestPoint.y,
+                    town,
+                    rayStartY,
+                    rayDistance,
+                    out Vector3 insetSurface))
+            {
+                bestPoint = insetSurface;
+            }
+            else
+            {
+                bestPoint = insetPoint;
             }
 
             return bestPoint + Vector3.up * 0.08f;
         }
 
+        private static bool TryFindSurfaceNearHeight(
+            Vector3 position,
+            float expectedHeight,
+            GameObject town,
+            float rayStartY,
+            float rayDistance,
+            out Vector3 surface)
+        {
+            surface = position;
+            RaycastHit[] hits =
+                Physics.RaycastAll(
+                    new Vector3(
+                        position.x,
+                        rayStartY,
+                        position.z),
+                    Vector3.down,
+                    rayDistance);
+            float bestDifference = float.MaxValue;
+            bool found = false;
+            foreach (RaycastHit hit in hits)
+            {
+                if (hit.collider == null ||
+                    !hit.collider.transform.IsChildOf(
+                        town.transform) ||
+                    hit.normal.y < 0.85f ||
+                    !HasStandingClearance(
+                        hit.point,
+                        town))
+                {
+                    continue;
+                }
+
+                float difference =
+                    Mathf.Abs(
+                        hit.point.y -
+                        expectedHeight);
+                if (difference >= bestDifference ||
+                    difference > 0.6f)
+                {
+                    continue;
+                }
+
+                bestDifference = difference;
+                surface = hit.point;
+                found = true;
+            }
+            return found;
+        }
+
+        private static bool HasStandingClearance(
+            Vector3 point,
+            GameObject town)
+        {
+            RaycastHit[] hits =
+                Physics.RaycastAll(
+                    point + Vector3.up * 0.15f,
+                    Vector3.up,
+                    2.2f);
+            foreach (RaycastHit hit in hits)
+            {
+                if (hit.collider != null &&
+                    hit.collider.transform.IsChildOf(
+                        town.transform))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private static int CountFlatAreaSamples(
+            Vector3 center,
+            GameObject town,
+            float rayStartY,
+            float rayDistance)
+        {
+            int matches = 0;
+            const int sampleRadius = 2;
+            const float spacing = 5f;
+            for (int xIndex = -sampleRadius;
+                 xIndex <= sampleRadius;
+                 xIndex++)
+            {
+                for (int zIndex = -sampleRadius;
+                     zIndex <= sampleRadius;
+                     zIndex++)
+                {
+                    float x =
+                        center.x + xIndex * spacing;
+                    float z =
+                        center.z + zIndex * spacing;
+                    RaycastHit[] hits =
+                        Physics.RaycastAll(
+                            new Vector3(
+                                x,
+                                rayStartY,
+                                z),
+                            Vector3.down,
+                            rayDistance);
+                    bool sampleMatched = false;
+                    foreach (RaycastHit hit in hits)
+                    {
+                        if (hit.collider == null ||
+                            !hit.collider.transform.IsChildOf(
+                                town.transform) ||
+                            hit.normal.y < 0.85f ||
+                            Mathf.Abs(
+                                hit.point.y -
+                                center.y) > 0.45f ||
+                            !HasStandingClearance(
+                                hit.point,
+                                town))
+                        {
+                            continue;
+                        }
+
+                        sampleMatched = true;
+                        break;
+                    }
+
+                    if (sampleMatched)
+                    {
+                        matches++;
+                    }
+                }
+            }
+            return matches;
+        }
+
         private static void AddSpawnMarker(
             GameObject root,
+            string markerName,
             Vector3 spawnPosition)
         {
             GameObject spawn =
-                new GameObject("PlayerSpawn");
+                new GameObject(markerName);
             spawn.transform.SetParent(root.transform, false);
             spawn.transform.position = spawnPosition;
         }

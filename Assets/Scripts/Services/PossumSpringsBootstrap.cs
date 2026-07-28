@@ -10,7 +10,12 @@ namespace AICompanion.Services
         private void Start()
         {
             Transform spawn =
-                transform.Find("PlayerSpawn");
+                transform.Find("ParkingLotSpawn");
+            if (spawn == null)
+            {
+                spawn =
+                    transform.Find("PlayerSpawn");
+            }
             if (spawn == null)
             {
                 Debug.LogError(
@@ -66,7 +71,17 @@ namespace AICompanion.Services
                         player.transform);
                     companionCamera.SetTrackedTarget(
                         player.transform);
+                    companionCamera.SetPlayerViewStyle(
+                        CompanionCamera.PlayerViewStyle
+                            .OverTheShoulder);
                     companionCamera.SetExploreMode(true);
+                    PossumSpringsMiniMap miniMap =
+                        gameObject.AddComponent<
+                            PossumSpringsMiniMap>();
+                    miniMap.Initialize(
+                        player.transform,
+                        worldBounds,
+                        companionCamera);
                     Debug.Log(
                         "[PossumSprings] Jojo loaded at " +
                         $"the town spawn: {spawn.position}.");

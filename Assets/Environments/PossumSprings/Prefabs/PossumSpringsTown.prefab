@@ -97,6 +97,37 @@ Light:
   m_LightUnit: 1
   m_LuxAtDistance: 1
   m_EnableSpotReflector: 1
+--- !u!1 &1617051923091503708
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1736130492390581126}
+  m_Layer: 0
+  m_Name: ParkingLotSpawn
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1736130492390581126
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1617051923091503708}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 303.41986, y: 174.81151, z: -101.88707}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 2645028060121580335}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &6090649752570558843
 GameObject:
   m_ObjectHideFlags: 0
@@ -123,7 +154,7 @@ Transform:
   m_GameObject: {fileID: 6090649752570558843}
   serializedVersion: 2
   m_LocalRotation: {x: 0.0040811575, y: -0, z: -0, w: 0.9999917}
-  m_LocalPosition: {x: -20.5802, y: 147.25018, z: -108.13708}
+  m_LocalPosition: {x: 303.41986, y: 176.4615, z: -102.13707}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -205,7 +236,7 @@ Transform:
   m_GameObject: {fileID: 7214095951621922862}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -20.5802, y: 145.60019, z: -107.88708}
+  m_LocalPosition: {x: 303.41986, y: 174.81151, z: -101.88707}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -242,6 +273,7 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 504602666222977188}
+  - {fileID: 1736130492390581126}
   - {fileID: 4409347439813135454}
   - {fileID: 6942379538115759297}
   - {fileID: 8604581599710459277}
