@@ -390,12 +390,88 @@ namespace AICompanion.Services
             // Set up default procedural companion on start
             CreateProceduralCompanion();
 
-            // Check if there is a custom VRM path saved in ServiceConfig
+            // Recover moved VRM Posing Desktop files before falling back to
+            // the bundled companion. This keeps a stale saved path from
+            // silently replacing the humanoid companion with the robot.
             ServiceConfig config = ServiceConfig.Load();
-            if (!string.IsNullOrEmpty(config.customVrmPath) && File.Exists(config.customVrmPath))
+            string companionVrmPath =
+                ResolveCompanionVrmPath(config.customVrmPath);
+            if (!string.IsNullOrEmpty(companionVrmPath))
             {
-                LoadVRM(config.customVrmPath, null, null);
+                if (ShouldPersistResolvedCompanionPath(
+                        config.customVrmPath,
+                        companionVrmPath))
+                {
+                    config.customVrmPath = companionVrmPath;
+                    config.Save();
+                    Debug.Log(
+                        "[VRMService] Repaired the saved companion " +
+                        $"VRM path: {companionVrmPath}");
+                }
+
+                LoadVRM(companionVrmPath, null, null);
             }
+        }
+
+        private static string ResolveCompanionVrmPath(
+            string savedPath)
+        {
+            if (!string.IsNullOrWhiteSpace(savedPath) &&
+                File.Exists(savedPath))
+            {
+                return savedPath;
+            }
+
+            string savedFileName =
+                string.IsNullOrWhiteSpace(savedPath)
+                    ? string.Empty
+                    : Path.GetFileName(savedPath);
+            if (!string.IsNullOrWhiteSpace(savedFileName))
+            {
+                DirectoryInfo companyDirectory =
+                    Directory.GetParent(
+                        Application.persistentDataPath);
+                string appData =
+                    companyDirectory?.Parent?.FullName;
+                string posingDesktopPath =
+                    Path.Combine(
+                        appData ?? string.Empty,
+                        "com.evelyngamedev.VrmPosingDesktop",
+                        savedFileName);
+                if (File.Exists(posingDesktopPath))
+                {
+                    return posingDesktopPath;
+                }
+            }
+
+            string bundledCompanion =
+                Path.Combine(Application.dataPath, "jdog.vrm");
+            return File.Exists(bundledCompanion)
+                ? bundledCompanion
+                : string.Empty;
+        }
+
+        private static bool ShouldPersistResolvedCompanionPath(
+            string savedPath,
+            string resolvedPath)
+        {
+            if (string.IsNullOrWhiteSpace(savedPath) ||
+                string.IsNullOrWhiteSpace(resolvedPath) ||
+                string.Equals(
+                    savedPath,
+                    resolvedPath,
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            // Only replace the preference when the original file was found
+            // at a new location. Do not erase that preference merely because
+            // the bundled fallback had to be used temporarily.
+            return string.Equals(
+                Path.GetFileName(savedPath),
+                Path.GetFileName(resolvedPath),
+                StringComparison.OrdinalIgnoreCase);
         }
 
         private void LoadOptionalPoses()

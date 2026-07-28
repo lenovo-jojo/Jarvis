@@ -9,7 +9,9 @@ namespace AICompanion.Services
     /// update. The head is masked so UniVRM can continue aiming the face and
     /// eyes independently of the body pose.
     /// </summary>
-    [DefaultExecutionOrder(10000)]
+    // Run after VRM10Service (11000) so saved VRMA/VPD playback cannot
+    // overwrite the shared Character Mode body pose.
+    [DefaultExecutionOrder(12000)]
     public sealed class RuntimeHumanoidPosePlayer : MonoBehaviour
     {
         private const string PoseResourcePath =

@@ -1042,6 +1042,11 @@ namespace AICompanion.Services
             characterPoseTarget = targetGo;
             hasPlacedCharacterPair = true;
             framedTarget = null;
+            zoomOffset = 0f;
+            sceneOffset = Vector3.zero;
+            hasManualFocus = false;
+            focusVelocity = Vector3.zero;
+            snapCameraThisFrame = true;
         }
 
         private void SetCharacterPoseActive(bool active)
