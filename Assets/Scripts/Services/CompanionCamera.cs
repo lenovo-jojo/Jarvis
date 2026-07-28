@@ -82,9 +82,14 @@ namespace AICompanion.Services
         private bool hasExplorePose;
         private Transform playerAvatar;
         private PlayerLocomotionAnimator playerLocomotion;
+        private RuntimeHumanoidPosePlayer playerCharacterPose;
+        private RuntimeHumanoidPosePlayer companionCharacterPose;
         private Vector3 playerLocalCameraPivot =
             new Vector3(0f, 1.35f, 0f);
         private bool exploreFollowingPlayer = true;
+        private bool hasPlacedCharacterPair;
+        private GameObject characterPoseTarget;
+        private float characterBlanketSurfaceY = 0.02f;
 
         private void Awake()
         {
@@ -223,6 +228,18 @@ namespace AICompanion.Services
             float targetHeight = isFaceFocusMode
                 ? stableFaceFocusHeight
                 : stableFullBodyFocusHeight;
+            if (!exploreMode &&
+                !isFaceFocusMode &&
+                companionCharacterPose != null &&
+                playerAvatar != null &&
+                TryGetCombinedAvatarBounds(
+                    targetGo,
+                    playerAvatar.gameObject,
+                    out Bounds pairBounds))
+            {
+                targetFocusPos = pairBounds.center;
+                targetHeight = pairBounds.size.y;
+            }
 
             if (!isInitialized)
             {
@@ -445,6 +462,17 @@ namespace AICompanion.Services
                         targetGo,
                         focusPos,
                         targetOffsetDir));
+                if (!exploreMode &&
+                    companionCharacterPose != null &&
+                    playerAvatar != null)
+                {
+                    baseDistance = Mathf.Max(
+                        baseDistance,
+                        CalculateAvatarFitDistance(
+                            playerAvatar.gameObject,
+                            focusPos,
+                            targetOffsetDir));
+                }
             }
 
             // Calculate target distance after zoom
@@ -869,12 +897,14 @@ namespace AICompanion.Services
             if (!exploreMode)
             {
                 SetPlayerVisible(true);
+                hasPlacedCharacterPair = false;
                 hasManualFocus = false;
                 sceneOffset = Vector3.zero;
                 focusVelocity = Vector3.zero;
             }
             else
             {
+                SetCharacterPoseActive(false);
                 hasManualFocus = false;
                 exploreFollowingPlayer = true;
                 SetPlayerVisible(true);
@@ -893,21 +923,47 @@ namespace AICompanion.Services
                     playerAvatar.gameObject.AddComponent<
                         PlayerLocomotionAnimator>();
             }
+            playerCharacterPose =
+                GetOrAddCharacterPose(playerAvatar.gameObject);
             exploreFollowingPlayer = true;
             CachePlayerCameraPivot();
             SetPlayerVisible(true);
+            hasPlacedCharacterPair = false;
         }
 
         private void UpdateCharacterInteraction(
             GameObject targetGo)
         {
-            if (exploreMode ||
-                playerAvatar == null ||
+            if (exploreMode)
+            {
+                SetCharacterPoseActive(false);
+                return;
+            }
+
+            if (playerAvatar == null ||
                 !playerAvatar.gameObject.activeInHierarchy ||
                 targetGo == null)
             {
                 return;
             }
+
+            companionCharacterPose =
+                GetOrAddCharacterPose(targetGo);
+            if (playerCharacterPose == null ||
+                companionCharacterPose == null)
+            {
+                SetCharacterPoseActive(false);
+                hasPlacedCharacterPair = false;
+                characterPoseTarget = null;
+                return;
+            }
+
+            if (!hasPlacedCharacterPair ||
+                characterPoseTarget != targetGo)
+            {
+                PlaceCharacterPairOnBlanket(targetGo);
+            }
+            SetCharacterPoseActive(true);
 
             Vector3 playerToCompanion =
                 targetGo.transform.position -
@@ -950,6 +1006,68 @@ namespace AICompanion.Services
                 0f,
                 false,
                 false);
+        }
+
+        private void PlaceCharacterPairOnBlanket(
+            GameObject targetGo)
+        {
+            GameObject blanket =
+                GameObject.Find("PicnicStage_Blanket");
+            Transform blanketTransform =
+                blanket != null ? blanket.transform : null;
+            Vector3 center =
+                blanketTransform != null
+                    ? blanketTransform.position
+                    : new Vector3(0f, 0.01f, 2f);
+            Vector3 across =
+                blanketTransform != null
+                    ? blanketTransform.right.normalized
+                    : Vector3.right;
+            characterBlanketSurfaceY = center.y + 0.01f;
+
+            Vector3 companionPosition =
+                center - across * 0.58f;
+            Vector3 playerPosition =
+                center + across * 0.58f;
+            companionPosition.y = characterBlanketSurfaceY;
+            playerPosition.y = characterBlanketSurfaceY;
+
+            targetGo.transform.SetPositionAndRotation(
+                companionPosition,
+                Quaternion.LookRotation(across, Vector3.up));
+            playerAvatar.SetPositionAndRotation(
+                playerPosition,
+                Quaternion.LookRotation(-across, Vector3.up));
+
+            characterPoseTarget = targetGo;
+            hasPlacedCharacterPair = true;
+            framedTarget = null;
+        }
+
+        private void SetCharacterPoseActive(bool active)
+        {
+            playerCharacterPose?.SetPoseActive(
+                active,
+                characterBlanketSurfaceY);
+            companionCharacterPose?.SetPoseActive(
+                active,
+                characterBlanketSurfaceY);
+        }
+
+        private static RuntimeHumanoidPosePlayer
+            GetOrAddCharacterPose(GameObject avatar)
+        {
+            Animator animator = avatar.GetComponent<Animator>();
+            if (animator == null || !animator.isHuman)
+            {
+                return null;
+            }
+
+            RuntimeHumanoidPosePlayer pose =
+                avatar.GetComponent<RuntimeHumanoidPosePlayer>();
+            return pose != null
+                ? pose
+                : avatar.AddComponent<RuntimeHumanoidPosePlayer>();
         }
 
         public bool TryGetPlayerTransform(
@@ -1178,6 +1296,114 @@ namespace AICompanion.Services
             }
 
             return requiredDistance;
+        }
+
+        private float CalculateAvatarFitDistance(
+            GameObject avatar,
+            Vector3 focusPosition,
+            Vector3 cameraOffsetDirection)
+        {
+            if (cam == null ||
+                !TryGetAvatarBounds(avatar, out Bounds bounds))
+            {
+                return minCameraDistance;
+            }
+
+            Quaternion inverseViewRotation =
+                Quaternion.Inverse(
+                    Quaternion.LookRotation(
+                        -cameraOffsetDirection.normalized,
+                        Vector3.up));
+            float verticalTangent =
+                Mathf.Tan(
+                    cam.fieldOfView *
+                    0.5f *
+                    Mathf.Deg2Rad);
+            float horizontalTangent =
+                verticalTangent * Mathf.Max(cam.aspect, 0.1f);
+            float requiredDistance = minCameraDistance;
+
+            foreach (Vector3 worldCorner in GetBoundsCorners(bounds))
+            {
+                Vector3 relative =
+                    inverseViewRotation *
+                    (worldCorner - focusPosition);
+                float horizontalFit =
+                    Mathf.Abs(relative.x) *
+                    padding /
+                    Mathf.Max(horizontalTangent, 0.01f);
+                float verticalFit =
+                    Mathf.Abs(relative.y) *
+                    padding /
+                    Mathf.Max(verticalTangent, 0.01f);
+                requiredDistance = Mathf.Max(
+                    requiredDistance,
+                    Mathf.Max(horizontalFit, verticalFit) -
+                    relative.z);
+            }
+
+            return requiredDistance;
+        }
+
+        private static bool TryGetCombinedAvatarBounds(
+            GameObject first,
+            GameObject second,
+            out Bounds bounds)
+        {
+            bool hasFirst =
+                TryGetAvatarBounds(first, out bounds);
+            if (!TryGetAvatarBounds(
+                    second,
+                    out Bounds secondBounds))
+            {
+                return hasFirst;
+            }
+
+            if (!hasFirst)
+            {
+                bounds = secondBounds;
+            }
+            else
+            {
+                bounds.Encapsulate(secondBounds);
+            }
+            return true;
+        }
+
+        private static bool TryGetAvatarBounds(
+            GameObject avatar,
+            out Bounds bounds)
+        {
+            bounds = new Bounds();
+            bool found = false;
+            if (avatar == null)
+            {
+                return false;
+            }
+
+            Renderer[] renderers =
+                avatar.GetComponentsInChildren<Renderer>(true);
+            foreach (Renderer renderer in renderers)
+            {
+                if (renderer == null ||
+                    !renderer.enabled ||
+                    renderer.bounds.size.sqrMagnitude < 0.0025f)
+                {
+                    continue;
+                }
+
+                if (!found)
+                {
+                    bounds = renderer.bounds;
+                    found = true;
+                }
+                else
+                {
+                    bounds.Encapsulate(renderer.bounds);
+                }
+            }
+
+            return found;
         }
 
         private static bool IsTypingIntoTextField()

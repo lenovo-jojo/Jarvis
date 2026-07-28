@@ -695,6 +695,7 @@ namespace AICompanion.Services
             // fallback aligned with the same active gaze target.
             Transform activeLookTarget =
                 ResolveCompanionLookTarget();
+            UpdatePlayerLookTarget();
             if (!isUsingCustomVrm &&
                 activeLookTarget != null)
             {
@@ -1152,6 +1153,54 @@ namespace AICompanion.Services
             }
 
             return player.transform;
+        }
+
+        private void UpdatePlayerLookTarget()
+        {
+            if (playerVrm10Instance == null ||
+                playerVrm10Instance.Runtime == null ||
+                Camera.main == null)
+            {
+                return;
+            }
+
+            Transform lookTarget = Camera.main.transform;
+            CompanionCamera companionCamera =
+                Camera.main.GetComponent<CompanionCamera>();
+            if (companionCamera != null &&
+                !companionCamera.ExploreMode)
+            {
+                GameObject companion =
+                    GameObject.Find("CompanionAvatarVRM");
+                if (companion == null)
+                {
+                    companion =
+                        GameObject.Find(
+                            "CompanionAvatarProcedural");
+                }
+
+                if (companion != null)
+                {
+                    Animator animator =
+                        companion.GetComponent<Animator>();
+                    Transform head =
+                        animator != null && animator.isHuman
+                            ? animator.GetBoneTransform(
+                                HumanBodyBones.Head)
+                            : null;
+                    lookTarget =
+                        head != null ? head : companion.transform;
+                }
+            }
+
+            playerVrm10Instance.LookAtTargetType =
+                VRM10ObjectLookAt.LookAtTargetTypes.SpecifiedTransform;
+            playerVrm10Instance.LookAtTarget = lookTarget;
+            playerVrm10Instance.Runtime.LookAt.LookAtInput =
+                new LookAtInput
+                {
+                    WorldPosition = lookTarget.position
+                };
         }
 
         private void ApplyCurrentVpdFallback()
