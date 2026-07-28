@@ -1,67 +1,81 @@
-# Jarvis — AI Companion (Unity 6)
+# jarvis
 
-A 3D anime AI companion app built with Unity 6. Talk to her via text or voice, she responds with speech and facial expressions, and you can load custom VRM avatars.
+a local-first 3d ai companion world built with unity 6.
 
----
+jarvis is a shared mind expressed through several individual vrm characters. jojo is stella, the self-insert, while charmy and spike are satellites with their own identities, memory banks, voices, poses, and conversational behavior.
 
-## Requirements
+## current scene
 
-- **Unity 6000.5.4f1** — install via [Unity Hub](https://unity.com/download)
-- **Ollama** (for local AI) — [ollama.com](https://ollama.com) — run `ollama pull dolphin-mistral` after installing
-- **ElevenLabs API key** (for voice) — [elevenlabs.io](https://elevenlabs.io) — free tier works
+the current vertical slice is a picnic scene where the cast can:
 
----
+- sit together using reusable humanoid poses
+- look toward the player, the camera, or whoever is speaking
+- speak through character-specific animalese voices and animated mouths
+- display optional world-space speech bubbles
+- be selected, outlined, posed, and repositioned
+- remember character-specific details and shared gossip
+- join stella through the phone control
 
-## Setup
+## camera modes
 
-1. Download or clone this repo
-2. Open **Unity Hub** → click **Open** → select the project folder
-3. Unity will auto-download all packages on first open (takes a few minutes — normal)
-4. Open the scene: `Assets/Scenes/` → double-click the main scene
-5. Press **Play**
+- pov mode places the camera at stella's eye level for embodied movement through the scene
+- tv mode provides an orbiting camera for framing and directing the characters
+- `r` frames the visible cast at full-body distance in tv mode
+- `f` uses a tighter conversational frame or focuses the selected character
+- `z` and `c` orbit the tv camera
+- `command-z` undoes an accidental character placement
 
----
+keyboard camera controls are ignored while typing in the chat box.
 
-## Configuration (in-app)
+## interaction
 
-Click the **Settings** button in the app to configure:
+- click a character to select and highlight them
+- drag only from the selected character's visible body to reposition them
+- press `p` to change the selected character's pose
+- click whistle to have the cast face the camera
+- use phone to call a satellite to stella
+- toggle speech bubbles without changing the chat transcript
+- save and load the current scene state from the in-app controls
 
-| Field | Value |
+## requirements
+
+- unity `6000.5.4f1`
+- univrm `0.131.2`
+- ollama or another openai-compatible chat endpoint
+- an optional speech-to-text endpoint or local whisper setup
+- an optional elevenlabs key for full text-to-speech
+
+## setup
+
+1. clone or download this repository.
+2. open the project folder in unity hub using unity `6000.5.4f1`.
+3. allow unity to restore the project packages.
+4. open the sample scene from the project window's scenes folder.
+5. enter play mode.
+6. open the in-app settings panel and configure the services you want to use.
+
+## default local ai settings
+
+| setting | default |
 |---|---|
-| LLM Base URL | `http://localhost:11434/v1` (Ollama default) |
-| LLM Model Name | `dolphin-mistral` (or any model you have pulled) |
-| LLM API Key | Leave blank for Ollama; paste OpenAI key for cloud mode |
-| ElevenLabs API Key | Your ElevenLabs key |
-| ElevenLabs Voice ID | Your chosen voice ID (default is pre-filled) |
-| Local Mode | Toggle ON for Ollama, OFF for OpenAI |
+| llm base url | `http://localhost:11434/v1` |
+| chat model | `llava` |
+| vision model | `qwen3-vl:4b-instruct` |
+| local mode | enabled |
+| local memory | enabled |
+| private web search | `http://127.0.0.1:8080` |
 
-Settings are saved automatically to your device.
+the local endpoints must already be running before jarvis can reach them. settings and scene state are stored in unity's persistent application data directory.
 
----
+## main packages
 
-## Features
+- univrm `0.131.2`
+- universal render pipeline `17.5.0`
+- input system `1.19.0`
+- ai navigation `2.0.13`
+- ugui `2.5.0`
+- timeline `1.8.12`
 
-- 💬 **Text chat** with memory (last 10 messages kept)
-- 🎤 **Voice input** — auto-detects when you speak via mic (Whisper API)
-- 🔊 **Voice output** — ElevenLabs TTS with lip sync
-- 😊 **Facial expressions** — reacts to happy/sad/thinking keywords
-- 📷 **Webcam context** — AI can see your camera feed
-- 🖥️ **Screen context** — AI can see your screen
-- 🧍 **VRM avatar support** — import any VRM 1.0 file
-- 🎭 **Pose system** — loads poses from `Assets/OptionalContent/Solo Scenes/`
-- 🖱️ **Click and drag** the avatar around the screen
+## project status
 
----
-
-## Cloud Mode (OpenAI)
-
-Toggle **Local Mode OFF** in Settings and paste your OpenAI API key. Uses `gpt-4o-mini` with vision.
-
----
-
-## Package Dependencies (auto-installed by Unity)
-
-- [UniVRM 0.128.1](https://github.com/vrm-c/UniVRM) via OpenUPM
-- Universal Render Pipeline (URP)
-- Input System
-- TextMeshPro
+this is an active prototype. the current priority is making the picnic scene, cast behavior, camera controls, memory, posing, and conversation reliable before expanding the world.
