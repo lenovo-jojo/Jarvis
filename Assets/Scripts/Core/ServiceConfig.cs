@@ -11,6 +11,11 @@ namespace AICompanion.Core
         public string llmApiKey = "";
         public string llmModelName = "llava";
         public string visionModelName = "qwen3-vl:4b-instruct";
+        public bool cloudFallbackEnabled = true;
+        public string cloudFallbackModelName = "o3";
+        public int cloudFallbackMaxRequestsPerSession = 3;
+        public int cloudFallbackMaxOutputTokens = 320;
+        public int cloudFallbackMigrationVersion = 1;
         public string speechToTextBaseUrl = "";
         public string speechToTextApiKey = "";
         public string speechToTextModelName = "whisper-1";
@@ -120,6 +125,26 @@ namespace AICompanion.Core
                     {
                         config.visionModelName =
                             "qwen3-vl:4b-instruct";
+                    }
+                    if (config != null &&
+                        config.cloudFallbackMigrationVersion < 1)
+                    {
+                        config.cloudFallbackEnabled = true;
+                        config.cloudFallbackModelName = "o3";
+                        config.cloudFallbackMaxRequestsPerSession = 3;
+                        config.cloudFallbackMaxOutputTokens = 320;
+                        config.cloudFallbackMigrationVersion = 1;
+                        shouldSaveMigration = true;
+                    }
+                    if (config != null &&
+                        config.cloudFallbackMaxRequestsPerSession <= 0)
+                    {
+                        config.cloudFallbackMaxRequestsPerSession = 3;
+                    }
+                    if (config != null &&
+                        config.cloudFallbackMaxOutputTokens <= 0)
+                    {
+                        config.cloudFallbackMaxOutputTokens = 320;
                     }
                     if (shouldSaveMigration)
                     {

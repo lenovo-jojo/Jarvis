@@ -34,6 +34,7 @@ namespace AICompanion.Services
         }
 
         private List<ChatMessageItem> chatHistory = new List<ChatMessageItem>();
+        private int cloudFallbackRequestsThisSession;
 
         public void ClearHistory()
         {
@@ -87,10 +88,17 @@ namespace AICompanion.Services
                     config);
             }
 
-            // Determine URL and API Key based on mode
-            string baseUrl = config.isLocalMode ? config.llmBaseUrl : "https://api.openai.com/v1";
-            string apiKey = config.llmApiKey; // Use the configured API key so local/custom gateways requiring Bearer Auth work
-            string modelName = config.isLocalMode ? config.llmModelName : "gpt-4o-mini"; // Standard multimodal cloud model
+            // Keep the cloud key away from the local Ollama request. When
+            // local mode is enabled, it is used only by the bounded fallback.
+            string baseUrl = config.isLocalMode
+                ? config.llmBaseUrl
+                : "https://api.openai.com/v1";
+            string apiKey = config.isLocalMode
+                ? string.Empty
+                : config.llmApiKey;
+            string modelName = config.isLocalMode
+                ? config.llmModelName
+                : "gpt-4o-mini";
 
             // If empty baseUrl, fallback to default Ollama
             if (string.IsNullOrEmpty(baseUrl))
@@ -165,6 +173,7 @@ namespace AICompanion.Services
                         new UploadHandlerRaw(visionBytes);
                     visionRequest.downloadHandler =
                         new DownloadHandlerBuffer();
+                    visionRequest.timeout = 20;
                     visionRequest.SetRequestHeader(
                         "Content-Type",
                         "application/json");
@@ -192,8 +201,10 @@ namespace AICompanion.Services
                             visionError += "\nDetails: " +
                                 visionRequest.downloadHandler.text;
                         }
-                        onError?.Invoke(visionError);
-                        yield break;
+                        Debug.LogWarning(
+                            "[LLMService] " + visionError +
+                            " Continuing so the chat request can use " +
+                            "the configured cloud fallback.");
                     }
 
                     string visualDescription =
@@ -202,16 +213,20 @@ namespace AICompanion.Services
                     if (string.IsNullOrWhiteSpace(
                             visualDescription))
                     {
-                        onError?.Invoke(
-                            "The vision model returned no visual " +
-                            "description.");
-                        yield break;
+                        Debug.LogWarning(
+                            "[LLMService] The local vision model " +
+                            "returned no description. Continuing " +
+                            "without a private visual summary.");
                     }
 
-                    visualContext =
-                        visualDescription.Trim();
-                    base64Cam = null;
-                    base64Scr = null;
+                    if (!string.IsNullOrWhiteSpace(
+                            visualDescription))
+                    {
+                        visualContext =
+                            visualDescription.Trim();
+                        base64Cam = null;
+                        base64Scr = null;
+                    }
                 }
             }
 
@@ -374,7 +389,8 @@ namespace AICompanion.Services
             {
                 webRequest.uploadHandler = new UploadHandlerRaw(jsonBytes);
                 webRequest.downloadHandler = new DownloadHandlerBuffer();
-                webRequest.timeout = 60;
+                webRequest.timeout =
+                    config.isLocalMode ? 15 : 60;
                 webRequest.SetRequestHeader("Content-Type", "application/json");
 
                 if (!string.IsNullOrEmpty(apiKey))
@@ -389,40 +405,216 @@ namespace AICompanion.Services
                     string responseText = webRequest.downloadHandler.text;
                     string aiResponse = ParseChatResponse(responseText);
 
-                    if (!string.IsNullOrEmpty(aiResponse))
-                    {
-                        // Enforce all lowercase letters for the companion's dialogue style
-                        aiResponse = aiResponse.ToLowerInvariant();
-
-                        // Add AI response to history
-                        chatHistory.Add(new ChatMessageItem { role = "assistant", text = aiResponse });
-                        memoryService.RecordAssistantMessage(
+                    if (TryCompleteResponse(
                             aiResponse,
-                            config);
-
-                        // Cap history to last 10 messages to avoid context bloat
-                        if (chatHistory.Count > 10)
-                        {
-                            chatHistory.RemoveRange(0, chatHistory.Count - 10);
-                        }
-
-                        onComplete?.Invoke(aiResponse);
-                    }
-                    else
+                            memoryService,
+                            config,
+                            onComplete))
                     {
-                        onError?.Invoke("Failed to parse response payload.");
+                        yield break;
                     }
                 }
-                else
+
+                string primaryError =
+                    BuildRequestError(webRequest);
+                if (!CanUseCloudFallback(config))
                 {
-                    string errorMsg = $"HTTP Error: {webRequest.responseCode} - {webRequest.error}";
-                    if (webRequest.downloadHandler != null)
+                    onError?.Invoke(primaryError);
+                    yield break;
+                }
+
+                cloudFallbackRequestsThisSession++;
+                string fallbackModel =
+                    GetCloudFallbackModel(config);
+                string fallbackEndpoint =
+                    "https://api.openai.com/v1/chat/completions";
+                string fallbackPayload =
+                    BuildCloudFallbackPayload(
+                        jsonBuilder.ToString(),
+                        modelName,
+                        fallbackModel,
+                        config.cloudFallbackMaxOutputTokens);
+                byte[] fallbackBytes =
+                    Encoding.UTF8.GetBytes(fallbackPayload);
+
+                Debug.LogWarning(
+                    "[LLMService] Local chat failed. Trying " +
+                    $"cloud fallback '{fallbackModel}' " +
+                    $"({cloudFallbackRequestsThisSession}/" +
+                    $"{GetCloudFallbackRequestLimit(config)}).");
+
+                using (UnityWebRequest fallbackRequest =
+                    new UnityWebRequest(fallbackEndpoint, "POST"))
+                {
+                    fallbackRequest.uploadHandler =
+                        new UploadHandlerRaw(fallbackBytes);
+                    fallbackRequest.downloadHandler =
+                        new DownloadHandlerBuffer();
+                    fallbackRequest.timeout = 60;
+                    fallbackRequest.SetRequestHeader(
+                        "Content-Type",
+                        "application/json");
+                    fallbackRequest.SetRequestHeader(
+                        "Authorization",
+                        $"Bearer {config.llmApiKey.Trim()}");
+
+                    yield return fallbackRequest.SendWebRequest();
+
+                    if (fallbackRequest.result ==
+                        UnityWebRequest.Result.Success)
                     {
-                        errorMsg += $"\nDetails: {webRequest.downloadHandler.text}";
+                        string fallbackResponse =
+                            ParseChatResponse(
+                                fallbackRequest.downloadHandler.text);
+                        if (TryCompleteResponse(
+                                fallbackResponse,
+                                memoryService,
+                                config,
+                                onComplete))
+                        {
+                            yield break;
+                        }
                     }
-                    onError?.Invoke(errorMsg);
+
+                    string fallbackError =
+                        BuildRequestError(fallbackRequest);
+                    onError?.Invoke(
+                        primaryError +
+                        "\nCloud fallback also failed: " +
+                        fallbackError);
                 }
             }
+        }
+
+        private bool TryCompleteResponse(
+            string response,
+            CompanionMemoryService memoryService,
+            ServiceConfig config,
+            Action<string> onComplete)
+        {
+            if (string.IsNullOrWhiteSpace(response))
+            {
+                return false;
+            }
+
+            string normalized =
+                response.ToLowerInvariant();
+            chatHistory.Add(
+                new ChatMessageItem
+                {
+                    role = "assistant",
+                    text = normalized
+                });
+            memoryService.RecordAssistantMessage(
+                normalized,
+                config);
+
+            if (chatHistory.Count > 10)
+            {
+                chatHistory.RemoveRange(
+                    0,
+                    chatHistory.Count - 10);
+            }
+
+            onComplete?.Invoke(normalized);
+            return true;
+        }
+
+        private bool CanUseCloudFallback(
+            ServiceConfig config)
+        {
+            return config != null &&
+                config.isLocalMode &&
+                config.cloudFallbackEnabled &&
+                !string.IsNullOrWhiteSpace(
+                    config.llmApiKey) &&
+                cloudFallbackRequestsThisSession <
+                    GetCloudFallbackRequestLimit(config);
+        }
+
+        private static int GetCloudFallbackRequestLimit(
+            ServiceConfig config)
+        {
+            return Mathf.Clamp(
+                config.cloudFallbackMaxRequestsPerSession,
+                1,
+                20);
+        }
+
+        private static string GetCloudFallbackModel(
+            ServiceConfig config)
+        {
+            return string.IsNullOrWhiteSpace(
+                    config.cloudFallbackModelName)
+                ? "o3"
+                : config.cloudFallbackModelName.Trim();
+        }
+
+        private static string BuildCloudFallbackPayload(
+            string primaryPayload,
+            string primaryModel,
+            string fallbackModel,
+            int maximumOutputTokens)
+        {
+            string payload =
+                primaryPayload.Replace(
+                    $"\"model\": \"{primaryModel}\"",
+                    $"\"model\": \"{fallbackModel}\"");
+            int outputLimit =
+                Mathf.Clamp(
+                    maximumOutputTokens,
+                    64,
+                    1024);
+
+            if (fallbackModel.StartsWith(
+                    "o",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                payload = payload
+                    .Replace(
+                        "\"reasoning_effort\":\"none\",",
+                        "\"reasoning_effort\":\"low\",")
+                    .Replace(
+                        "\"temperature\":0.75,",
+                        string.Empty)
+                    .Replace(
+                        "\"top_p\":0.9,",
+                        string.Empty)
+                    .Replace(
+                        "\"max_tokens\":320,",
+                        $"\"max_completion_tokens\":" +
+                        $"{outputLimit},");
+            }
+            else
+            {
+                payload = payload.Replace(
+                    "\"max_tokens\":320,",
+                    $"\"max_tokens\":{outputLimit},");
+            }
+
+            return payload;
+        }
+
+        private static string BuildRequestError(
+            UnityWebRequest request)
+        {
+            if (request == null)
+            {
+                return "Request failed before it was sent.";
+            }
+
+            string error =
+                $"HTTP Error: {request.responseCode} - " +
+                request.error;
+            if (request.downloadHandler != null &&
+                !string.IsNullOrWhiteSpace(
+                    request.downloadHandler.text))
+            {
+                error +=
+                    "\nDetails: " +
+                    request.downloadHandler.text;
+            }
+            return error;
         }
 
         private string BuildVisionPayload(

@@ -30,6 +30,7 @@ namespace AICompanion.UI
         [SerializeField] private TMP_InputField elevenLabsApiKeyInput;
         [SerializeField] private TMP_InputField elevenLabsVoiceIdInput;
         [SerializeField] private Toggle localModeToggle;
+        private Toggle cloudFallbackToggle;
 
         [Header("Vision & Context")]
         [SerializeField] private Toggle webcamToggle;
@@ -345,6 +346,31 @@ namespace AICompanion.UI
                     SetToggleText(
                         speechBubbleToggle,
                         "speech bubbles");
+                }
+            }
+
+            if (cloudFallbackToggle == null &&
+                localModeToggle != null)
+            {
+                GameObject fallbackObject =
+                    Instantiate(
+                        localModeToggle.gameObject,
+                        localModeToggle.transform.parent);
+                fallbackObject.name = "CloudFallbackToggle";
+                cloudFallbackToggle =
+                    fallbackObject.GetComponent<Toggle>();
+                cloudFallbackToggle.SetIsOnWithoutNotify(
+                    currentConfig.cloudFallbackEnabled);
+                SetToggleText(
+                    cloudFallbackToggle,
+                    "o3 cloud fallback");
+
+                RectTransform fallbackRect =
+                    fallbackObject.GetComponent<RectTransform>();
+                if (fallbackRect != null)
+                {
+                    fallbackRect.anchoredPosition =
+                        new Vector2(200f, -280f);
                 }
             }
 
@@ -3640,6 +3666,11 @@ namespace AICompanion.UI
             if (elevenLabsApiKeyInput != null) elevenLabsApiKeyInput.text = currentConfig.elevenLabsApiKey;
             if (elevenLabsVoiceIdInput != null) elevenLabsVoiceIdInput.text = currentConfig.elevenLabsVoiceId;
             if (localModeToggle != null) localModeToggle.isOn = currentConfig.isLocalMode;
+            if (cloudFallbackToggle != null)
+            {
+                cloudFallbackToggle.SetIsOnWithoutNotify(
+                    currentConfig.cloudFallbackEnabled);
+            }
             if (voiceModelDropdown != null)
             {
                 voiceModelDropdown.ClearOptions();
@@ -3661,6 +3692,11 @@ namespace AICompanion.UI
             currentConfig.elevenLabsApiKey = elevenLabsApiKeyInput.text;
             currentConfig.elevenLabsVoiceId = elevenLabsVoiceIdInput.text;
             currentConfig.isLocalMode = localModeToggle.isOn;
+            if (cloudFallbackToggle != null)
+            {
+                currentConfig.cloudFallbackEnabled =
+                    cloudFallbackToggle.isOn;
+            }
             if (voiceModelDropdown != null)
             {
                 int idx = voiceModelDropdown.value;
@@ -3893,7 +3929,11 @@ namespace AICompanion.UI
             if (connectionStatusText != null)
             {
                 connectionStatusText.text = currentConfig.isLocalMode
-                    ? "local mode (ollama)"
+                    ? !currentConfig.cloudFallbackEnabled ||
+                        string.IsNullOrWhiteSpace(
+                            currentConfig.llmApiKey)
+                        ? "local mode (ollama)"
+                        : "local mode (ollama + o3 fallback)"
                     : "cloud mode (online api)";
             }
         }
