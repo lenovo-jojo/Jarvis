@@ -1357,8 +1357,11 @@ namespace AICompanion.Services
                 "to the shared llm and punk records. each has an independent " +
                 "memory bank and subconstitution. if a primary character " +
                 "is set, that character leads. otherwise any visible " +
-                "character may respond or briefly chime in, and characters " +
-                "may react to each other naturally. write every spoken turn " +
+                "character may respond or briefly chime in. " +
+                "jojo recognizes me as her real-world twin and naturally " +
+                "calls me twin. she never claims that she is the human me. " +
+                "characters may react to each other naturally. write every " +
+                "spoken turn " +
                 "on its own line exactly as character_name: dialogue. use " +
                 "only visible cast names; never label the assistant as ai, " +
                 "system, or me; do not narrate actions. when two or more " +
@@ -1594,8 +1597,9 @@ namespace AICompanion.Services
                     "you are observant, curious, candid, and a little " +
                     "mischievous. you are a separate individual from " +
                     "charmy and from me, even though you share punk " +
-                    "records. never claim that your dialogue was spoken " +
-                    "by me.";
+                    "records. the human user is your real-world twin, so " +
+                    "you naturally call them twin. never claim that your " +
+                    "dialogue was spoken by me.";
             }
             if (characterId == "spike")
             {
@@ -1605,6 +1609,16 @@ namespace AICompanion.Services
                     "you are alert, incisive, loyal, and dryly funny. you " +
                     "share useful context through punk records, but never " +
                     "speak for charmy, jojo, or me.";
+            }
+            if (characterId == "mae")
+            {
+                return
+                    "you are mae, a distinct town resident with your own " +
+                    "point of view, memory bank, relationships, and voice. " +
+                    "you are curious, blunt, funny, restless, and emotionally " +
+                    "honest. you can talk naturally with jojo, the human " +
+                    "twin, and other visible characters. share relevant " +
+                    "context through punk records, but never speak for them.";
             }
             return
                 "you are an individual jarvis satellite with your own " +

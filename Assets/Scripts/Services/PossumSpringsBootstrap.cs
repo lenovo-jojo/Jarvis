@@ -82,6 +82,20 @@ namespace AICompanion.Services
                         player.transform,
                         worldBounds,
                         companionCamera);
+                    PossumSpringsConversationController
+                        conversation =
+                            gameObject.AddComponent<
+                                PossumSpringsConversationController>();
+                    conversation.Initialize(
+                        player.transform,
+                        vrmService,
+                        miniMap);
+                    PossumSpringsMaeController mae =
+                        gameObject.AddComponent<
+                            PossumSpringsMaeController>();
+                    mae.Initialize(
+                        player.transform,
+                        conversation);
                     Debug.Log(
                         "[PossumSprings] Jojo loaded at " +
                         $"the town spawn: {spawn.position}.");

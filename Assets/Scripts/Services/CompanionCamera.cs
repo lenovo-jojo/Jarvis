@@ -2407,7 +2407,18 @@ namespace AICompanion.Services
             TMP_InputField inputField = selected != null
                 ? selected.GetComponentInParent<TMP_InputField>()
                 : null;
-            return inputField != null && inputField.isFocused;
+            if (inputField != null && inputField.isFocused)
+            {
+                return true;
+            }
+
+            UnityEngine.UI.InputField legacyInput =
+                selected != null
+                    ? selected.GetComponentInParent<
+                        UnityEngine.UI.InputField>()
+                    : null;
+            return legacyInput != null &&
+                legacyInput.isFocused;
         }
     }
 }

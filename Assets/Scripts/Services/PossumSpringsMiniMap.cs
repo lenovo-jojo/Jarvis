@@ -8,6 +8,7 @@ namespace AICompanion.Services
         MonoBehaviour
     {
         private const int MapTextureSize = 384;
+        private const float FullMapZoomFactor = 0.62f;
         private Transform target;
         private CompanionCamera playerCamera;
         private Camera mapCamera;
@@ -25,6 +26,8 @@ namespace AICompanion.Services
         private Bounds worldBounds;
         private bool fullMapOpen;
 
+        public bool IsFullMapOpen => fullMapOpen;
+
         public void Initialize(
             Transform followTarget,
             Bounds bounds,
@@ -39,7 +42,7 @@ namespace AICompanion.Services
                 Mathf.Max(
                     bounds.extents.x,
                     bounds.extents.z) *
-                1.04f;
+                FullMapZoomFactor;
 
             BuildMapCamera(bounds);
             BuildMapInterface();
