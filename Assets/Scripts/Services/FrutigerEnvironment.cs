@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.SceneManagement;
 
 namespace AICompanion.Services
 {
@@ -31,6 +32,16 @@ namespace AICompanion.Services
             RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void CreateForScene()
         {
+            Scene activeScene =
+                SceneManager.GetActiveScene();
+            if (activeScene.IsValid() &&
+                activeScene.name.Equals(
+                    "PossumSprings",
+                    System.StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
             if (Object.FindAnyObjectByType<FrutigerEnvironment>() != null)
             {
                 return;

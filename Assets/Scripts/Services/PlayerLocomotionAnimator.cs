@@ -167,6 +167,12 @@ namespace AICompanion.Services
             {
                 return;
             }
+            if (!graph.IsValid() ||
+                !mixer.IsValid())
+            {
+                isReady = false;
+                return;
+            }
 
             bool isMoving = requestedSpeed > 0.05f;
             float targetFly =
@@ -287,6 +293,7 @@ namespace AICompanion.Services
 
         private void OnDestroy()
         {
+            isReady = false;
             if (graph.IsValid())
             {
                 graph.Destroy();

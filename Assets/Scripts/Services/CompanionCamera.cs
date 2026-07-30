@@ -8,6 +8,12 @@ namespace AICompanion.Services
 {
     public class CompanionCamera : MonoBehaviour
     {
+        public enum PlayerViewStyle
+        {
+            Pov,
+            OverTheShoulder
+        }
+
         [Header("Target Framing")]
         [SerializeField] private float padding = 1.15f; // Extra framing margin (1.15 = 15% padding on top and bottom)
         [SerializeField] private float smoothSpeed = 8.0f; // Smooth interpolation speed
@@ -42,6 +48,23 @@ namespace AICompanion.Services
         [SerializeField] private float conversationTurnSpeed = 4f;
         [SerializeField] private float maxPovLean = 0.45f;
         [SerializeField] private float povLeanSensitivity = 0.0015f;
+        [SerializeField] private PlayerViewStyle playerViewStyle =
+            PlayerViewStyle.Pov;
+        [SerializeField] private float shoulderDistance = 3.2f;
+        [SerializeField] private float shoulderHeight = 0.35f;
+        [SerializeField] private float shoulderSideOffset = 0.65f;
+        [SerializeField] private float shoulderLookHeight = 0.2f;
+        [SerializeField] private float minShoulderDistance = 1.35f;
+        [SerializeField] private float maxShoulderDistance = 7f;
+        [SerializeField] private float playerPinchZoomSensitivity = 0.01f;
+        [SerializeField] private float povPinchFovSensitivity = 0.12f;
+        [SerializeField] private float minPovFieldOfView = 35f;
+        [SerializeField] private float maxPovFieldOfView = 80f;
+        [SerializeField] private float jumpHeight = 1.15f;
+        [SerializeField] private float gravity = -22f;
+        [SerializeField] private float streetHeadingIncrement = 15f;
+        [SerializeField] private float streetHeadingTurnThreshold = 32f;
+        [SerializeField] private float streetHeadingAssistSpeed = 9f;
 
         [Header("Character Tracking")]
         [SerializeField] private Transform selectedTarget;
@@ -100,6 +123,15 @@ namespace AICompanion.Services
         private RaycastHit blanketClickHit;
         private RuntimeHumanoidPosePlayer playerSeatedPose;
         private float povLeanDistance;
+        private bool followWorldSurface;
+        private float navigationMinHeight = 0.02f;
+        private float navigationMaxHeight = 20f;
+        private float playerVerticalVelocity;
+        private bool playerGrounded;
+        private bool hasStreetHeading;
+        private Vector3 streetHeading = Vector3.forward;
+        private bool pinchGestureActive;
+        private float previousPinchDistance;
 
         private void Awake()
         {
@@ -114,6 +146,8 @@ namespace AICompanion.Services
         public float ZoomOffset => zoomOffset;
         public Vector3 SceneOffset => sceneOffset;
         public bool ExploreMode => exploreMode;
+        public PlayerViewStyle CurrentPlayerViewStyle =>
+            playerViewStyle;
 
         private void Start()
         {
@@ -170,6 +204,39 @@ namespace AICompanion.Services
             if (fullBodyFramingScale <= 0.1f)
             {
                 fullBodyFramingScale = 1f;
+            }
+            if (streetHeadingIncrement <= 0f)
+            {
+                streetHeadingIncrement = 15f;
+            }
+            if (streetHeadingTurnThreshold <= 0f)
+            {
+                streetHeadingTurnThreshold = 32f;
+            }
+            if (streetHeadingAssistSpeed <= 0f)
+            {
+                streetHeadingAssistSpeed = 9f;
+            }
+            if (minShoulderDistance <= 0f)
+            {
+                minShoulderDistance = 1.35f;
+            }
+            if (maxShoulderDistance <= minShoulderDistance)
+            {
+                maxShoulderDistance = 7f;
+            }
+            if (playerPinchZoomSensitivity <= 0f)
+            {
+                playerPinchZoomSensitivity = 0.01f;
+            }
+            if (povPinchFovSensitivity <= 0f)
+            {
+                povPinchFovSensitivity = 0.12f;
+            }
+            if (maxPovFieldOfView <= minPovFieldOfView)
+            {
+                minPovFieldOfView = 35f;
+                maxPovFieldOfView = 80f;
             }
         }
 
@@ -386,20 +453,27 @@ namespace AICompanion.Services
                     !pointerOverUi &&
                     Mathf.Abs(scroll) > 0.01f)
                 {
-                    povLeanDistance = Mathf.Clamp(
-                        povLeanDistance +
-                        scroll * povLeanSensitivity,
-                        -0.08f,
-                        maxPovLean);
+                    ApplyPlayerPinchZoom(scroll);
                     isInteracting = true;
                 }
+            }
+
+            if (ProcessTouchPinchZoom())
+            {
+                isInteracting = true;
             }
 
             if (!IsTypingIntoTextField() &&
                 Keyboard.current != null &&
                 Keyboard.current.spaceKey.wasPressedThisFrame)
             {
-                if (exploreMode)
+                if (exploreMode &&
+                    playerAvatar != null &&
+                    exploreFollowingPlayer)
+                {
+                    TryStartPlayerJump();
+                }
+                else if (exploreMode)
                 {
                     // Return to the self-insert after an R/F companion snap.
                     exploreFollowingPlayer = true;
@@ -416,6 +490,20 @@ namespace AICompanion.Services
                     sceneOffset = Vector3.zero;
                     hasManualFocus = false;
                 }
+                isInteracting = true;
+            }
+
+            if (!IsTypingIntoTextField() &&
+                Keyboard.current != null &&
+                Keyboard.current.vKey.wasPressedThisFrame &&
+                exploreMode &&
+                playerAvatar != null)
+            {
+                SetPlayerViewStyle(
+                    playerViewStyle ==
+                    PlayerViewStyle.Pov
+                        ? PlayerViewStyle.OverTheShoulder
+                        : PlayerViewStyle.Pov);
                 isInteracting = true;
             }
 
@@ -469,61 +557,53 @@ namespace AICompanion.Services
                 Keyboard.current != null &&
                 Keyboard.current.fKey.wasPressedThisFrame)
             {
-                if (exploreMode)
+                if (exploreMode &&
+                    playerAvatar != null)
                 {
-                    try
-                    {
-                        ServiceLocator
-                            .Resolve<IVRMService>()
-                            .FocusSelectedCharacterForConversation();
-                    }
-                    catch
-                    {
-                        // Camera framing still works before services finish
-                        // booting; conversation focus can wait.
-                    }
-                }
-                // Face reset.
-                exploreFollowingPlayer = false;
-                if (exploreMode)
-                {
-                    SetPlayerVisible(false);
-                }
-                isFaceFocusMode = true;
-                if (!exploreMode &&
-                    TryCacheTvGroupFraming(
-                        targetGo,
-                        true,
-                        out targetFocusPos,
-                        out targetHeight))
-                {
-                    isTvGroupFraming = true;
+                    SetPlayerViewStyle(
+                        playerViewStyle ==
+                        PlayerViewStyle.Pov
+                            ? PlayerViewStyle.OverTheShoulder
+                            : PlayerViewStyle.Pov);
                 }
                 else
                 {
-                    isTvGroupFraming = false;
-                    targetFocusPos =
-                        targetGo.transform.TransformPoint(
-                            stableLocalFaceFocusPos);
-                    targetHeight =
-                        stableFaceFocusHeight;
-                }
-                ResetToFraming(
-                    targetFocusPos,
-                    targetHeight,
-                    0f,
-                    isTvGroupFraming
-                        ? GetTvGroupYaw(
+                    // Face reset in TV mode.
+                    exploreFollowingPlayer = false;
+                    isFaceFocusMode = true;
+                    if (TryCacheTvGroupFraming(
                             targetGo,
-                            targetFocusPos)
-                        : GetFaceForwardYaw(targetGo));
-                focusPos = targetFocusPos;
+                            true,
+                            out targetFocusPos,
+                            out targetHeight))
+                    {
+                        isTvGroupFraming = true;
+                    }
+                    else
+                    {
+                        isTvGroupFraming = false;
+                        targetFocusPos =
+                            targetGo.transform.TransformPoint(
+                                stableLocalFaceFocusPos);
+                        targetHeight =
+                            stableFaceFocusHeight;
+                    }
+                    ResetToFraming(
+                        targetFocusPos,
+                        targetHeight,
+                        0f,
+                        isTvGroupFraming
+                            ? GetTvGroupYaw(
+                                targetGo,
+                                targetFocusPos)
+                            : GetFaceForwardYaw(targetGo));
+                    focusPos = targetFocusPos;
+                }
                 isInteracting = true;
             }
 
-            // Explore mode controls the camera itself. R and F deliberately
-            // skip this branch for one frame, snap to the VRM below, and then
-            // resume free flight from the snapped position.
+            // POV and shoulder views remain attached to the player so WASD
+            // works in both styles.
             if (exploreMode && !snapCameraThisFrame)
             {
                 ProcessExploreNavigation();
@@ -608,7 +688,11 @@ namespace AICompanion.Services
 
         private Vector3 ClampAboveGround(Vector3 position)
         {
-            position.y = Mathf.Max(position.y, groundClearance);
+            position.y =
+                Mathf.Max(
+                    position.y,
+                    navigationMinHeight +
+                    groundClearance);
             return position;
         }
 
@@ -1128,7 +1212,8 @@ namespace AICompanion.Services
                         (lookRotation * Vector3.right * localMove.x) +
                         (Vector3.up * localMove.y);
                     float speed = moveSpeed *
-                        (Keyboard.current.leftShiftKey.isPressed
+                        ((Keyboard.current.leftShiftKey.isPressed ||
+                          Keyboard.current.rightShiftKey.isPressed)
                             ? sprintMultiplier
                             : 1f);
                     explorePosition +=
@@ -1138,8 +1223,9 @@ namespace AICompanion.Services
 
             explorePosition.y = Mathf.Clamp(
                 explorePosition.y,
-                groundClearance,
-                maxExploreHeight);
+                navigationMinHeight +
+                    groundClearance,
+                navigationMaxHeight);
             transform.SetPositionAndRotation(
                 explorePosition,
                 Quaternion.Euler(explorePitch, exploreYaw, 0f));
@@ -1172,10 +1258,15 @@ namespace AICompanion.Services
                 (planarLook * Vector3.forward * localMove.z) +
                 (planarLook * Vector3.right * localMove.x);
             Vector3 worldMove =
-                horizontalMove + Vector3.up * localMove.y;
+                horizontalMove +
+                Vector3.up *
+                (followWorldSurface
+                    ? 0f
+                    : localMove.y);
             bool sprinting =
                 Keyboard.current != null &&
-                Keyboard.current.leftShiftKey.isPressed;
+                (Keyboard.current.leftShiftKey.isPressed ||
+                 Keyboard.current.rightShiftKey.isPressed);
             float appliedSpeed = 0f;
 
             if (worldMove.sqrMagnitude > 0f)
@@ -1196,23 +1287,57 @@ namespace AICompanion.Services
                     (sprinting
                         ? sprintMultiplier
                         : 1f);
+                horizontalMove =
+                    ApplyStreetHeadingAssist(
+                        horizontalMove,
+                        localMove);
+                worldMove =
+                    horizontalMove +
+                    Vector3.up *
+                    (followWorldSurface
+                        ? 0f
+                        : localMove.y);
                 appliedSpeed = speed *
                     horizontalMove.magnitude /
                     worldMove.magnitude;
-                playerAvatar.position +=
-                    worldMove.normalized * speed * Time.deltaTime;
+                Vector3 previousPosition =
+                    playerAvatar.position;
+                Vector3 proposedPosition =
+                    previousPosition +
+                    (followWorldSurface
+                        ? horizontalMove.normalized
+                        : worldMove.normalized) *
+                    speed *
+                    Time.deltaTime;
+                playerAvatar.position =
+                    proposedPosition;
+            }
+            else
+            {
+                hasStreetHeading = false;
             }
 
             Vector3 playerPosition = playerAvatar.position;
+            if (followWorldSurface)
+            {
+                playerPosition =
+                    ApplyPlayerJumpAndGrounding(
+                        playerPosition);
+            }
             playerPosition.y = Mathf.Clamp(
                 playerPosition.y,
-                0.02f,
-                Mathf.Max(0.02f, maxExploreHeight - 1f));
+                navigationMinHeight,
+                Mathf.Max(
+                    navigationMinHeight,
+                    navigationMaxHeight - 1f));
             playerAvatar.position = playerPosition;
             playerLocomotion?.SetMotion(
                 appliedSpeed,
                 sprinting,
-                playerPosition.y > 0.05f);
+                followWorldSurface
+                    ? !playerGrounded
+                    : playerPosition.y >
+                        navigationMinHeight + 0.05f);
 
             Quaternion cameraRotation =
                 Quaternion.Euler(
@@ -1220,11 +1345,35 @@ namespace AICompanion.Services
                     exploreYaw,
                     0f);
             Quaternion bodyRotation =
-                Quaternion.Euler(0f, exploreYaw, 0f);
+                playerViewStyle ==
+                    PlayerViewStyle.OverTheShoulder
+                    ? horizontalMove.sqrMagnitude > 0.001f
+                        ? Quaternion.LookRotation(
+                            horizontalMove.normalized,
+                            Vector3.up)
+                        : playerAvatar.rotation
+                    : Quaternion.Euler(
+                        0f,
+                        exploreYaw,
+                        0f);
             playerAvatar.rotation = Quaternion.Slerp(
                 playerAvatar.rotation,
                 bodyRotation,
                 Time.deltaTime * playerTurnSpeed);
+
+            if (playerViewStyle ==
+                PlayerViewStyle.OverTheShoulder)
+            {
+                PositionOverShoulderCamera(
+                    cameraRotation);
+                SetPlayerRenderersVisible(true);
+                if (cam != null)
+                {
+                    cam.nearClipPlane =
+                        characterNearClipPlane;
+                }
+                return;
+            }
 
             bool showingBody =
                 explorePitch >= PovBodyRevealPitch;
@@ -1248,6 +1397,389 @@ namespace AICompanion.Services
             }
             currentTargetCamPos = explorePosition;
             isInitialized = true;
+        }
+
+        private bool ProcessTouchPinchZoom()
+        {
+            if (!exploreMode ||
+                !exploreFollowingPlayer ||
+                Touchscreen.current == null)
+            {
+                pinchGestureActive = false;
+                return false;
+            }
+
+            var touches = Touchscreen.current.touches;
+            if (touches.Count < 2 ||
+                !touches[0].press.isPressed ||
+                !touches[1].press.isPressed)
+            {
+                pinchGestureActive = false;
+                return false;
+            }
+
+            float pinchDistance =
+                Vector2.Distance(
+                    touches[0].position.ReadValue(),
+                    touches[1].position.ReadValue());
+            if (!pinchGestureActive)
+            {
+                pinchGestureActive = true;
+                previousPinchDistance = pinchDistance;
+                return false;
+            }
+
+            float pinchDelta =
+                pinchDistance - previousPinchDistance;
+            previousPinchDistance = pinchDistance;
+            if (Mathf.Abs(pinchDelta) < 0.01f)
+            {
+                return false;
+            }
+
+            ApplyPlayerPinchZoom(pinchDelta);
+            return true;
+        }
+
+        private void ApplyPlayerPinchZoom(float pinchDelta)
+        {
+            if (playerViewStyle ==
+                PlayerViewStyle.OverTheShoulder)
+            {
+                shoulderDistance = Mathf.Clamp(
+                    shoulderDistance -
+                    pinchDelta *
+                    playerPinchZoomSensitivity,
+                    minShoulderDistance,
+                    maxShoulderDistance);
+                return;
+            }
+
+            if (cam != null)
+            {
+                cam.fieldOfView = Mathf.Clamp(
+                    cam.fieldOfView -
+                    pinchDelta *
+                    povPinchFovSensitivity,
+                    minPovFieldOfView,
+                    maxPovFieldOfView);
+            }
+        }
+
+        private Vector3 ApplyStreetHeadingAssist(
+            Vector3 requestedMove,
+            Vector3 localMove)
+        {
+            if (!followWorldSurface ||
+                requestedMove.sqrMagnitude < 0.001f)
+            {
+                hasStreetHeading = false;
+                return requestedMove;
+            }
+
+            // A/D always wins so intersections and intentional turns remain
+            // responsive. The assist only keeps a forward/back street run
+            // from slowly curving as the shoulder camera moves.
+            bool movingStraight =
+                Mathf.Abs(localMove.z) > 0.1f &&
+                Mathf.Abs(localMove.x) < 0.1f;
+            if (!movingStraight)
+            {
+                hasStreetHeading = false;
+                return requestedMove;
+            }
+
+            Vector3 requestedDirection =
+                requestedMove.normalized;
+            Vector3 forwardDirection =
+                localMove.z >= 0f
+                    ? requestedDirection
+                    : -requestedDirection;
+            if (!hasStreetHeading ||
+                Vector3.Angle(
+                    streetHeading,
+                    forwardDirection) >=
+                    streetHeadingTurnThreshold)
+            {
+                float requestedYaw =
+                    Mathf.Atan2(
+                        forwardDirection.x,
+                        forwardDirection.z) *
+                    Mathf.Rad2Deg;
+                float snappedYaw =
+                    Mathf.Round(
+                        requestedYaw /
+                        Mathf.Max(
+                            1f,
+                            streetHeadingIncrement)) *
+                    Mathf.Max(
+                        1f,
+                        streetHeadingIncrement);
+                streetHeading =
+                    Quaternion.Euler(
+                        0f,
+                        snappedYaw,
+                        0f) *
+                    Vector3.forward;
+                hasStreetHeading = true;
+            }
+
+            Vector3 assistedDirection =
+                Vector3.Slerp(
+                    requestedDirection,
+                    localMove.z >= 0f
+                        ? streetHeading
+                        : -streetHeading,
+                    1f -
+                    Mathf.Exp(
+                        -streetHeadingAssistSpeed *
+                        Time.deltaTime));
+            return assistedDirection.normalized *
+                requestedMove.magnitude;
+        }
+
+        private void TryStartPlayerJump()
+        {
+            if (!followWorldSurface ||
+                !playerGrounded)
+            {
+                return;
+            }
+
+            playerVerticalVelocity =
+                Mathf.Sqrt(
+                    Mathf.Max(
+                        0.1f,
+                        jumpHeight) *
+                    -2f *
+                    Mathf.Min(
+                        -0.1f,
+                        gravity));
+            playerGrounded = false;
+        }
+
+        private Vector3 ApplyPlayerJumpAndGrounding(
+            Vector3 position)
+        {
+            float previousY = position.y;
+            if (!playerGrounded)
+            {
+                playerVerticalVelocity +=
+                    gravity * Time.deltaTime;
+                position.y +=
+                    playerVerticalVelocity *
+                    Time.deltaTime;
+            }
+
+            if (!TryFindNearbySurface(
+                    position,
+                    out float surfaceY))
+            {
+                playerGrounded = false;
+                return position;
+            }
+
+            if (playerGrounded)
+            {
+                position.y = surfaceY;
+                playerVerticalVelocity = 0f;
+                return position;
+            }
+
+            bool falling =
+                playerVerticalVelocity <= 0f;
+            bool crossedSurface =
+                position.y <= surfaceY + 0.12f &&
+                previousY >= surfaceY - 0.12f;
+            if (falling && crossedSurface)
+            {
+                position.y = surfaceY;
+                playerVerticalVelocity = 0f;
+                playerGrounded = true;
+            }
+            return position;
+        }
+
+        private bool TryFindNearbySurface(
+            Vector3 position,
+            out float surfaceY)
+        {
+            Vector3 origin =
+                position +
+                Vector3.up * 1.5f;
+            RaycastHit[] hits =
+                Physics.RaycastAll(
+                    origin,
+                    Vector3.down,
+                    5f,
+                    Physics.DefaultRaycastLayers,
+                    QueryTriggerInteraction.Ignore);
+            bool found = false;
+            float bestDistance = float.MaxValue;
+            surfaceY = position.y;
+            foreach (RaycastHit hit in hits)
+            {
+                if (hit.collider == null ||
+                    hit.normal.y < 0.45f ||
+                    (playerAvatar != null &&
+                     hit.collider.transform.IsChildOf(
+                         playerAvatar)))
+                {
+                    continue;
+                }
+
+                float distance =
+                    Mathf.Abs(
+                        hit.point.y - position.y);
+                if (distance >= bestDistance)
+                {
+                    continue;
+                }
+
+                bestDistance = distance;
+                surfaceY = hit.point.y;
+                found = true;
+            }
+            return found;
+        }
+
+        private void PositionOverShoulderCamera(
+            Quaternion orbitRotation)
+        {
+            Vector3 eyePivot =
+                GetLivePlayerEyePivot(
+                    playerAvatar.rotation);
+            Vector3 lookTarget =
+                eyePivot +
+                Vector3.up * shoulderLookHeight;
+            Vector3 desiredPosition =
+                lookTarget +
+                orbitRotation *
+                new Vector3(
+                    shoulderSideOffset,
+                    shoulderHeight,
+                    -shoulderDistance);
+            desiredPosition =
+                ResolveShoulderObstruction(
+                    lookTarget,
+                    desiredPosition);
+            desiredPosition =
+                ClampAboveGround(
+                    desiredPosition);
+
+            Vector3 lookDirection =
+                lookTarget - desiredPosition;
+            Quaternion lookRotation =
+                lookDirection.sqrMagnitude > 0.001f
+                    ? Quaternion.LookRotation(
+                        lookDirection.normalized,
+                        Vector3.up)
+                    : orbitRotation;
+            explorePosition = desiredPosition;
+            transform.SetPositionAndRotation(
+                explorePosition,
+                lookRotation);
+            currentTargetCamPos = explorePosition;
+            isInitialized = true;
+        }
+
+        private Vector3 ResolveShoulderObstruction(
+            Vector3 lookTarget,
+            Vector3 desiredPosition)
+        {
+            Vector3 offset =
+                desiredPosition - lookTarget;
+            float distance = offset.magnitude;
+            if (distance <= 0.05f)
+            {
+                return desiredPosition;
+            }
+
+            RaycastHit[] hits =
+                Physics.SphereCastAll(
+                    lookTarget,
+                    0.18f,
+                    offset / distance,
+                    distance,
+                    Physics.DefaultRaycastLayers,
+                    QueryTriggerInteraction.Ignore);
+            float nearestDistance = distance;
+            foreach (RaycastHit hit in hits)
+            {
+                if (hit.collider == null ||
+                    (playerAvatar != null &&
+                     hit.collider.transform.IsChildOf(
+                         playerAvatar)))
+                {
+                    continue;
+                }
+
+                nearestDistance =
+                    Mathf.Min(
+                        nearestDistance,
+                        hit.distance);
+            }
+
+            if (nearestDistance >= distance)
+            {
+                return desiredPosition;
+            }
+
+            return lookTarget +
+                offset.normalized *
+                Mathf.Max(
+                    0.35f,
+                    nearestDistance - 0.12f);
+        }
+
+        private Vector3 FollowNearbySurface(
+            Vector3 previousPosition,
+            Vector3 proposedPosition)
+        {
+            Vector3 origin =
+                proposedPosition +
+                Vector3.up * 1.5f;
+            RaycastHit[] hits =
+                Physics.RaycastAll(
+                    origin,
+                    Vector3.down,
+                    6f,
+                    Physics.DefaultRaycastLayers,
+                    QueryTriggerInteraction.Ignore);
+            bool found = false;
+            float bestDistance = float.MaxValue;
+            float surfaceY = previousPosition.y;
+            foreach (RaycastHit hit in hits)
+            {
+                if (hit.collider == null ||
+                    hit.normal.y < 0.45f ||
+                    (playerAvatar != null &&
+                     hit.collider.transform.IsChildOf(
+                         playerAvatar)))
+                {
+                    continue;
+                }
+
+                float step =
+                    Mathf.Abs(
+                        hit.point.y -
+                        previousPosition.y);
+                if (step > 2.25f ||
+                    step >= bestDistance)
+                {
+                    continue;
+                }
+
+                bestDistance = step;
+                surfaceY = hit.point.y;
+                found = true;
+            }
+
+            proposedPosition.y =
+                found
+                    ? surfaceY
+                    : previousPosition.y;
+            return proposedPosition;
         }
 
         private void EnsureExplorePose()
@@ -1291,10 +1823,16 @@ namespace AICompanion.Services
                 hasManualFocus = false;
                 exploreFollowingPlayer = true;
                 SetPlayerVisible(true);
-                SetPlayerRenderersVisible(false);
+                SetPlayerRenderersVisible(
+                    playerViewStyle ==
+                    PlayerViewStyle.OverTheShoulder);
                 if (cam != null)
                 {
-                    cam.nearClipPlane = PovNearClipPlane;
+                    cam.nearClipPlane =
+                        playerViewStyle ==
+                        PlayerViewStyle.OverTheShoulder
+                            ? characterNearClipPlane
+                            : PovNearClipPlane;
                 }
                 if (playerAvatar != null)
                 {
@@ -1324,11 +1862,76 @@ namespace AICompanion.Services
             exploreFollowingPlayer = true;
             CachePlayerCameraPivot();
             SetPlayerVisible(true);
-            SetPlayerRenderersVisible(!exploreMode);
+            SetPlayerRenderersVisible(
+                !exploreMode ||
+                playerViewStyle ==
+                    PlayerViewStyle.OverTheShoulder);
             if (cam != null && exploreMode)
             {
-                cam.nearClipPlane = PovNearClipPlane;
+                cam.nearClipPlane =
+                    playerViewStyle ==
+                    PlayerViewStyle.OverTheShoulder
+                        ? characterNearClipPlane
+                        : PovNearClipPlane;
             }
+        }
+
+        public void SetPlayerViewStyle(
+            PlayerViewStyle viewStyle)
+        {
+            playerViewStyle = viewStyle;
+            povLeanDistance = 0f;
+            exploreFollowingPlayer = true;
+            hasExplorePose = false;
+            SetPlayerVisible(true);
+            SetPlayerRenderersVisible(
+                viewStyle ==
+                PlayerViewStyle.OverTheShoulder);
+            if (cam != null)
+            {
+                cam.nearClipPlane =
+                    viewStyle ==
+                    PlayerViewStyle.OverTheShoulder
+                        ? characterNearClipPlane
+                        : PovNearClipPlane;
+            }
+        }
+
+        public void ConfigureWorldNavigation(
+            float minimumHeight,
+            float maximumHeight,
+            float walkingSpeed)
+        {
+            navigationMinHeight = minimumHeight;
+            navigationMaxHeight =
+                Mathf.Max(
+                    minimumHeight + 2f,
+                    maximumHeight);
+            maxExploreHeight = navigationMaxHeight;
+            moveSpeed = Mathf.Max(1f, walkingSpeed);
+            followWorldSurface = true;
+            playerGrounded = false;
+            playerVerticalVelocity = 0f;
+        }
+
+        public void TeleportPlayer(
+            Vector3 worldPosition)
+        {
+            if (playerAvatar == null)
+            {
+                return;
+            }
+
+            playerAvatar.position =
+                worldPosition;
+            playerVerticalVelocity = 0f;
+            playerGrounded = false;
+            exploreFollowingPlayer = true;
+            hasExplorePose = false;
+            SetPlayerVisible(true);
+            SetPlayerRenderersVisible(
+                playerViewStyle ==
+                PlayerViewStyle.OverTheShoulder);
         }
 
         private void UpdateCharacterInteraction(
@@ -1804,7 +2407,18 @@ namespace AICompanion.Services
             TMP_InputField inputField = selected != null
                 ? selected.GetComponentInParent<TMP_InputField>()
                 : null;
-            return inputField != null && inputField.isFocused;
+            if (inputField != null && inputField.isFocused)
+            {
+                return true;
+            }
+
+            UnityEngine.UI.InputField legacyInput =
+                selected != null
+                    ? selected.GetComponentInParent<
+                        UnityEngine.UI.InputField>()
+                    : null;
+            return legacyInput != null &&
+                legacyInput.isFocused;
         }
     }
 }
