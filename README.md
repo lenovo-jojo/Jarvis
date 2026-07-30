@@ -81,3 +81,9 @@ the local endpoints must already be running before jarvis can reach them. when l
 ## project status
 
 this is an active prototype. the current priority is making the picnic scene, cast behavior, camera controls, memory, posing, and conversation reliable before expanding the world.
+
+## roadmap
+
+the planned dollhouse operating system, control room, daily-life tools, skills,
+world activities, and safety foundations are tracked in
+[roadmap.md](ROADMAP.md).
