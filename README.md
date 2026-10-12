@@ -6,7 +6,7 @@ A Unity/C# companion prototype exploring local AI, avatar interaction, camera co
 
 [Read the evolution case study](https://github.com/lenovo-jojo/portfolio/blob/main/case-studies/companion-evolution.md) · [Portfolio and delivery evidence](https://github.com/lenovo-jojo/portfolio)
 
-**Verification:** publication review checked tracked content and reachable branch history. A fresh Unity runtime demonstration remains pending; the feature descriptions below describe the prototype and are not a claim of production readiness.
+**Verification:** the public core imports and compiles in Unity 6000.5.4f1. Batch-mode pose discovery found 18 standard poses without private content and 27 with the optional pose pack installed. These checks do not prove full scene playback or avatar animation; a visible runtime demonstration remains pending. The descriptions below refer to an evolving prototype.
 
 a local-first 3d ai companion world built with unity 6.
 
