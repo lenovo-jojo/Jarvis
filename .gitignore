@@ -42,3 +42,9 @@ Assets/OptionalContent.meta
 .env
 .env.*
 !.env.example
+
+# Browser/Python build artifacts
+node_modules/
+dist/
+__pycache__/
+.pytest_cache/

@@ -4,6 +4,12 @@ A Unity/C# companion prototype exploring local AI, avatar interaction, camera co
 
 **Public source edition:** this repository is a curated prototype snapshot, not the latest dirty local development checkout. Original personal avatars and optional private content are excluded. Supply your own VRM avatar through the character-import controls. No private add-on is needed to inspect or compile the core; optional editor content is discovered under `Assets/OptionalContent` when installed separately.
 
+## Inspect the iterations
+
+- [Unity/C# services](Assets/Scripts): the public core snapshot, with user-supplied avatars.
+- [Three.js/TypeScript browser world](examples/browser-world): recovered source, passing typecheck and production build. The publication snapshot includes small type fixes and a compatible dependency patch; it leaves the live project untouched.
+- [GameCube dialogue prototype](examples/gamecube-dialogue): recovered Python integration source, with three passing parser/encoder/conversation-state checks using stubbed external I/O.
+
 [Read the evolution case study](https://github.com/lenovo-jojo/portfolio/blob/main/case-studies/companion-evolution.md) · [Portfolio and delivery evidence](https://github.com/lenovo-jojo/portfolio)
 
 **Verification:** the public core imports and compiles in Unity 6000.5.4f1. Batch-mode pose discovery found 18 standard poses without private content and 27 with the optional pose pack installed. These checks do not prove full scene playback or avatar animation; a visible runtime demonstration remains pending. The descriptions below refer to an evolving prototype.
