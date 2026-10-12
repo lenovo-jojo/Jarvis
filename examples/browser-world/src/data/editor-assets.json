@@ -1,0 +1,80 @@
+{
+  "assets": [
+    {
+      "id": "eb30d219-e36d-4b1e-a651-92413b329ec0",
+      "name": "Panel — Warm Paper",
+      "object": {
+        "metadata": {
+          "version": 4.6,
+          "type": "Object",
+          "generator": "Object3D.toJSON"
+        },
+        "geometries": [
+          {
+            "uuid": "417af466-cb2f-4731-99bb-20aa70d6a84a",
+            "type": "PlaneGeometry",
+            "width": 1.18,
+            "height": 0.54,
+            "widthSegments": 1,
+            "heightSegments": 1
+          }
+        ],
+        "materials": [
+          {
+            "uuid": "14fd2b35-96ae-4597-98ea-b3f7846e6af4",
+            "type": "MeshStandardMaterial",
+            "color": 16246980,
+            "roughness": 0.92,
+            "metalness": 0,
+            "emissive": 0,
+            "envMapRotation": [
+              0,
+              0,
+              0,
+              "XYZ"
+            ],
+            "envMapIntensity": 1,
+            "side": 2,
+            "blendColor": 0
+          }
+        ],
+        "object": {
+          "uuid": "c0c31f3b-726c-40fe-bdbd-e1e0b3ba8624",
+          "type": "Mesh",
+          "layers": 1,
+          "matrix": [
+            -1,
+            0,
+            -1.2246467991473532e-16,
+            0,
+            0,
+            1,
+            0,
+            0,
+            1.2246467991473532e-16,
+            0,
+            -1,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          "up": [
+            0,
+            1,
+            0
+          ],
+          "geometry": "417af466-cb2f-4731-99bb-20aa70d6a84a",
+          "material": "14fd2b35-96ae-4597-98ea-b3f7846e6af4"
+        }
+      }
+    }
+  ],
+  "instances": [
+    {
+      "id": "d1dc9877-e5bc-4d10-adcf-5474e8131240",
+      "assetId": "eb30d219-e36d-4b1e-a651-92413b329ec0"
+    }
+  ]
+}
