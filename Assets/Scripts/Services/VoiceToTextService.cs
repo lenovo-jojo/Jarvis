@@ -19,9 +19,19 @@ namespace AICompanion.Services
         private bool isTranscribing = false;
         private bool isListeningEnabled = true;
         private float lastVoiceTime;
+        private float resumeListeningAt;
+        private string lastDispatchedTranscript = string.Empty;
+        private float lastTranscriptAt = -100f;
         private const int Samplerate = 16000;
         private const int MaxDurationSeconds = 12;
+        private const int CaptureBufferSeconds = MaxDurationSeconds + 2;
+        private const float PreRollSeconds = 0.25f;
+        private float captureStartedAt;
+        private float recordingStartedAt;
+        private int recordingStartSample;
         private const float MinimumSpeechSeconds = 0.12f;
+        private const float ResumeCooldownSeconds = 1.25f;
+        private const float RepeatedShortTranscriptWindowSeconds = 8f;
 
         [Header("Voice Trigger Settings")]
         [SerializeField] private float voiceThreshold = 0.015f; // Noise gate threshold
@@ -33,24 +43,45 @@ namespace AICompanion.Services
 
         public void SetListeningEnabled(bool enabled)
         {
+            bool wasEnabled = isListeningEnabled;
             isListeningEnabled = enabled;
+            if (enabled && !wasEnabled)
+            {
+                ResetMicrophoneCapture(
+                    cancelTranscription: true);
+                RefreshMicrophoneDevice();
+                // Do not immediately transcribe the tail of companion speech
+                // or a frame-load/UI sound when the microphone comes back.
+                resumeListeningAt =
+                    Time.unscaledTime +
+                    ResumeCooldownSeconds;
+            }
             if (!enabled)
             {
-                if (isRecording)
-                {
-                    isRecording = false;
-                }
-                if (!string.IsNullOrEmpty(micDevice) && Microphone.IsRecording(micDevice))
-                {
-                    Microphone.End(micDevice);
-                }
+                ResetMicrophoneCapture(
+                    cancelTranscription: true);
             }
             Debug.Log($"[VoiceToTextService] Listening enabled: {enabled}");
         }
 
+        private volatile bool audioConfigurationChanged;
+        private void OnEnable() => AudioSettings.OnAudioConfigurationChanged += OnAudioConfigurationChanged;
+        private void OnDisable()
+        {
+            AudioSettings.OnAudioConfigurationChanged -= OnAudioConfigurationChanged;
+            ResetMicrophoneCapture(cancelTranscription: true);
+        }
+        private void OnAudioConfigurationChanged(bool deviceWasChanged)
+        {
+            audioConfigurationChanged = true;
+        }
         private void Start()
         {
-            // Detect default microphone
+            RefreshMicrophoneDevice();
+        }
+
+        private void RefreshMicrophoneDevice()
+        {
             if (Microphone.devices.Length > 0)
             {
                 micDevice = Microphone.devices[0];
@@ -58,13 +89,56 @@ namespace AICompanion.Services
             }
             else
             {
+                micDevice = string.Empty;
                 Debug.LogWarning("[VoiceToTextService] No microphone devices found on this system.");
             }
         }
 
+        private void ResetMicrophoneCapture(
+            bool cancelTranscription)
+        {
+            if (!string.IsNullOrEmpty(micDevice) &&
+                Microphone.IsRecording(micDevice))
+            {
+                Microphone.End(micDevice);
+            }
+            isRecording = false;
+            micClip = null;
+            lastVoiceTime = 0f;
+
+            if (cancelTranscription)
+            {
+                StopAllCoroutines();
+                isTranscribing = false;
+            }
+        }
+
+        private void OnApplicationFocus(bool hasFocus)
+        {
+            if (!hasFocus || !isListeningEnabled)
+            {
+                return;
+            }
+
+            ResetMicrophoneCapture(
+                cancelTranscription: false);
+            RefreshMicrophoneDevice();
+            resumeListeningAt =
+                Time.unscaledTime +
+                ResumeCooldownSeconds;
+        }
+
         private void Update()
         {
+            if (audioConfigurationChanged)
+            {
+                audioConfigurationChanged = false;
+                ResetMicrophoneCapture(cancelTranscription: false);
+                RefreshMicrophoneDevice();
+                resumeListeningAt = Time.unscaledTime + ResumeCooldownSeconds;
+            }
             if (!isListeningEnabled) return;
+            if (Time.unscaledTime < resumeListeningAt) return;
             if (isTranscribing) return;
             if (string.IsNullOrEmpty(micDevice)) return;
 
@@ -74,11 +148,12 @@ namespace AICompanion.Services
                 // Temporarily monitor mic levels in a loop
                 if (!Microphone.IsRecording(micDevice))
                 {
-                    micClip = Microphone.Start(micDevice, true, 1, Samplerate);
+                    StartMicrophoneBuffer();
                 }
 
-                int micPosition = Microphone.GetPosition(micDevice) - 512;
-                if (micPosition > 0)
+                int position = Microphone.GetPosition(micDevice);
+                int micPosition = (position - micSamples.Length + micClip.samples) % micClip.samples;
+                if (position >= micSamples.Length || Time.unscaledTime - captureStartedAt >= CaptureBufferSeconds)
                 {
                     micClip.GetData(micSamples, micPosition);
                     float sum = 0f;
@@ -91,7 +166,6 @@ namespace AICompanion.Services
                     // Voice detected! Auto-start recording
                     if (rms > voiceThreshold)
                     {
-                        Microphone.End(micDevice);
                         StartRecording();
                     }
                 }
@@ -99,8 +173,9 @@ namespace AICompanion.Services
             else
             {
                 // Active recording: check for silence timeout to automatically stop
-                int micPosition = Microphone.GetPosition(micDevice) - 512;
-                if (micPosition > 0)
+                int position = Microphone.GetPosition(micDevice);
+                int micPosition = (position - micSamples.Length + micClip.samples) % micClip.samples;
+                if (position >= micSamples.Length || Time.unscaledTime - captureStartedAt >= CaptureBufferSeconds)
                 {
                     micClip.GetData(micSamples, micPosition);
                     float sum = 0f;
@@ -116,7 +191,7 @@ namespace AICompanion.Services
                     }
 
                     // Autostop if silent for too long, or reached max duration
-                    if (Time.time - lastVoiceTime > silenceTimeout || Microphone.GetPosition(micDevice) >= Samplerate * MaxDurationSeconds)
+                    if (Time.time - lastVoiceTime > silenceTimeout || Time.unscaledTime - recordingStartedAt >= MaxDurationSeconds)
                     {
                         StopRecordingAndTranscribe();
                     }
@@ -128,10 +203,27 @@ namespace AICompanion.Services
         {
             if (isRecording || string.IsNullOrEmpty(micDevice)) return;
 
+            if (micClip == null || !Microphone.IsRecording(micDevice))
+                StartMicrophoneBuffer();
+            if (micClip == null) return;
+            int position = Microphone.GetPosition(micDevice);
+            // Retain the trigger audio without stopping/reopening the device.
+            // Clamp pre-roll while a fresh buffer is still filling.
+            int available = Time.unscaledTime - captureStartedAt >= CaptureBufferSeconds
+                ? micClip.samples : position;
+            int preRoll = Mathf.Min(Mathf.RoundToInt(Samplerate * PreRollSeconds), available);
+            recordingStartSample = (position - preRoll + micClip.samples) % micClip.samples;
+            recordingStartedAt = Time.unscaledTime;
+
             isRecording = true;
             lastVoiceTime = Time.time;
             Debug.Log("[VoiceToTextService] Voice trigger activated! Recording started...");
-            micClip = Microphone.Start(micDevice, false, MaxDurationSeconds, Samplerate);
+        }
+
+        private void StartMicrophoneBuffer()
+        {
+            micClip = Microphone.Start(micDevice, true, CaptureBufferSeconds, Samplerate);
+            captureStartedAt = Time.unscaledTime;
         }
 
         private void StopRecordingAndTranscribe()
@@ -142,7 +234,9 @@ namespace AICompanion.Services
             int lastPos = Microphone.GetPosition(micDevice);
             Microphone.End(micDevice);
 
-            if (lastPos <= 0)
+            int sampleCount = micClip != null
+                ? (lastPos - recordingStartSample + micClip.samples) % micClip.samples : 0;
+            if (sampleCount <= 0)
             {
                 Debug.LogWarning("[VoiceToTextService] Recorded clip was empty.");
                 return;
@@ -153,8 +247,9 @@ namespace AICompanion.Services
                 "starting transcription...");
 
             // Create a trimmed audioclip containing only recorded data
-            float[] trimmedSamples = new float[lastPos];
-            micClip.GetData(trimmedSamples, 0);
+            float[] trimmedSamples = new float[sampleCount];
+            // GetData wraps at the end of the circular clip, preserving order.
+            micClip.GetData(trimmedSamples, recordingStartSample);
 
             if (!HasUsableSpeech(trimmedSamples))
             {
@@ -376,13 +471,38 @@ namespace AICompanion.Services
         private void DispatchTranscript(string text)
         {
             string trimmed = text.Trim();
-            if (IsBlankTranscript(trimmed))
+            if (IsBlankTranscript(trimmed) ||
+                IsLikelyWhisperHallucination(trimmed))
             {
                 Debug.Log(
-                    "[VoiceToTextService] Ignoring blank " +
+                    "[VoiceToTextService] Ignoring blank or phantom " +
                     "transcription.");
                 return;
             }
+
+            string normalized =
+                NormalizeTranscript(trimmed);
+            int wordCount =
+                normalized.Split(
+                    new[] { ' ' },
+                    StringSplitOptions.RemoveEmptyEntries)
+                .Length;
+            if (wordCount <= 2 &&
+                string.Equals(
+                    normalized,
+                    lastDispatchedTranscript,
+                    StringComparison.Ordinal) &&
+                Time.unscaledTime - lastTranscriptAt <
+                    RepeatedShortTranscriptWindowSeconds)
+            {
+                Debug.Log(
+                    "[VoiceToTextService] Ignoring repeated short " +
+                    $"transcription: '{trimmed}'");
+                return;
+            }
+
+            lastDispatchedTranscript = normalized;
+            lastTranscriptAt = Time.unscaledTime;
 
             Debug.Log(
                 $"[VoiceToTextService] Transcribed speech: " +
@@ -393,6 +513,38 @@ namespace AICompanion.Services
             {
                 controller.ProcessVoiceInput(trimmed);
             }
+        }
+
+        private static bool IsLikelyWhisperHallucination(
+            string text)
+        {
+            string normalized = NormalizeTranscript(text);
+            return normalized == "you" ||
+                   normalized == "thanks for watching" ||
+                   normalized == "thank you for watching" ||
+                   normalized == "please subscribe" ||
+                   normalized == "subtitles by amara org";
+        }
+
+        private static string NormalizeTranscript(string text)
+        {
+            StringBuilder normalized = new StringBuilder();
+            bool previousWasSpace = true;
+            foreach (char character in
+                (text ?? string.Empty).ToLowerInvariant())
+            {
+                if (char.IsLetterOrDigit(character))
+                {
+                    normalized.Append(character);
+                    previousWasSpace = false;
+                }
+                else if (!previousWasSpace)
+                {
+                    normalized.Append(' ');
+                    previousWasSpace = true;
+                }
+            }
+            return normalized.ToString().Trim();
         }
 
         private bool HasUsableSpeech(float[] samples)
