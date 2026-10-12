@@ -1,4 +1,12 @@
-# jarvis
+# JARVIS / Critter Comforts
+
+A Unity/C# companion prototype exploring local AI, avatar interaction, camera controls, and character memory. Developed with AI assistance.
+
+**Public source edition:** this repository is a curated prototype snapshot, not the latest dirty local development checkout. Original personal avatars and optional private content are excluded. Supply your own VRM avatar through the character-import controls. No private add-on is needed to inspect or compile the core; optional editor content is discovered under `Assets/OptionalContent` when installed separately.
+
+[Read the evolution case study](https://github.com/lenovo-jojo/portfolio/blob/main/case-studies/companion-evolution.md) · [Portfolio and delivery evidence](https://github.com/lenovo-jojo/portfolio)
+
+**Verification:** publication review checked tracked content and reachable branch history. A fresh Unity runtime demonstration remains pending; the feature descriptions below describe the prototype and are not a claim of production readiness.
 
 a local-first 3d ai companion world built with unity 6.
 

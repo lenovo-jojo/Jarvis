@@ -33,3 +33,12 @@ Thumbs.db
 # Copilot worktrees / nested repos
 copilot-worktrees/
 Jarvis-*/
+
+# Optional private content stays outside public source control
+Assets/OptionalContent/
+Assets/OptionalContent.meta
+*.vrm
+*.vrm.meta
+.env
+.env.*
+!.env.example

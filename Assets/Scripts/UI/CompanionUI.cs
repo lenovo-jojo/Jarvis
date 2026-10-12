@@ -133,21 +133,9 @@ namespace AICompanion.UI
         private const int MaxVisibleChatLines = 5;
         private const int MaxRetainedChatLines = 30;
         private static readonly List<string> VoiceModels = new List<string> { "eleven_multilingual_v2", "animalese.js" };
-        private static readonly Dictionary<string, string>
-            FriendlyPoseNames =
-                new Dictionary<string, string>(
-                    StringComparer.OrdinalIgnoreCase)
-                {
-                    { "Bent Over", "forward fold" },
-                    { "Optional Pose B", "hands together" },
-                    { "Optional Pose A", "arms overhead" },
-                    { "Feet Focus", "cozy feet" },
-                    { "Optional Pose", "self-care pose" },
-                    { "Holding Legs Up", "tucked legs" },
-                    { "Pic Taking", "photo pose" },
-                    { "Optional Pose C", "relaxed sitting" },
-                    { "Optional Pose D", "open seated pose" }
-                };
+        // Optional pose catalogs supply their own names; the core embeds no catalog.
+        private static readonly Dictionary<string, string> FriendlyPoseNames =
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         private void Start()
         {

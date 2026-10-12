@@ -556,8 +556,7 @@ namespace AICompanion.Services
 
             if (!Directory.Exists(soloScenesDir))
             {
-                Debug.LogWarning(
-                    $"[VRMService] Optional Poses directory not found at: {soloScenesDir}");
+                // Optional content is not required for the core's favorite poses.
                 return;
             }
 
