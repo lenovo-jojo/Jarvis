@@ -9,14 +9,14 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: examples/browser-world
+        working-directory: project/examples/browser-world
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: examples/browser-world/package-lock.json
+          cache-dependency-path: project/examples/browser-world/package-lock.json
       - run: npm ci --ignore-scripts
       - run: npm test
       - run: npm run typecheck
@@ -25,4 +25,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: python3 examples/gamecube-dialogue/tests/run_checks.py
+      - run: python3 project/examples/gamecube-dialogue/tests/run_checks.py

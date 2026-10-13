@@ -35,8 +35,8 @@ copilot-worktrees/
 Jarvis-*/
 
 # Optional private content stays outside public source control
-Assets/OptionalContent/
-Assets/OptionalContent.meta
+project/Assets/OptionalContent/
+project/Assets/OptionalContent.meta
 *.vrm
 *.vrm.meta
 .env
