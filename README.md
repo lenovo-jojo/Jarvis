@@ -6,74 +6,74 @@ a cozy, local-first jarvis project: characters with a home inside the computer, 
 
 built in **unity/c#**, with vrm avatars and a roadmap spanning locomotion, eye tracking, ik animation, tts, stt, voice cloning, and an obsidian-backed character hive mind using **ollama, qwen, and hermes**. developed with ai assistance.
 
-## The cast
+## the cast
 
-These are the characters' intended responsibilities, not claims that every listed workflow is complete.
+these are the characters' intended responsibilities, not claims that every listed workflow is complete.
 
-| Character | Their job | Dedicated sprint |
+| character | their job | dedicated sprint |
 |---|---|---|
-| **P.A.** | Personal assistant and companion. Hold unresolved threads, help with to-dos and check-ins, follow up on plans, and support morning startup and wind-down routines. | C01 — Continuity |
-| **Chef** | Make eating easier: meal ideas, pantry context, groceries, cooking steps, and useful follow-ups about food. | C02 — Food |
-| **Coach** | Help turn movement intentions into manageable exercise, stretching, recovery, and habit check-ins. | C03 — Movement |
-| **Librarian** | Organize notes, research, reading, and remembered ideas; retrieve useful context with source links. | C04 — Knowledge |
-| **Nurse** | Support user-entered care routines, hydration, reminders, and wellness logs—not diagnosis or medical authority. | C05 — Care |
-| **Banker** | Help understand budgets, expenses, and savings goals through read-only summaries—not autonomous financial transactions. | C06 — Money |
-| **Secretary** | Organize appointments, calendar context, priorities, and administrative loose ends. Scene identifier: MayorSecretary. | C07 — Planning |
-| **Popular Girl / Gossip** | Help with social plans, conversation preparation, relationships, and remembering things the user chose to share. | C08 — Social life |
-| **Therapist** | Offer reflection, emotional check-ins, and small grounding steps—not a replacement for professional care. | C09 — Reflection |
-| **Tinkerer** | Help with projects, troubleshooting, creative experiments, and making the next build step concrete. | C10 — Making |
+| **p.a.** | personal assistant and companion. hold unresolved threads, help with to-dos and check-ins, follow up on plans, and support morning startup and wind-down routines. | c01 — continuity |
+| **chef** | make eating easier: meal ideas, pantry context, groceries, cooking steps, and useful follow-ups about food. | c02 — food |
+| **coach** | help turn movement intentions into manageable exercise, stretching, recovery, and habit check-ins. | c03 — movement |
+| **librarian** | organize notes, research, reading, and remembered ideas; retrieve useful context with source links. | c04 — knowledge |
+| **nurse** | support user-entered care routines, hydration, reminders, and wellness logs—not diagnosis or medical authority. | c05 — care |
+| **banker** | help understand budgets, expenses, and savings goals through read-only summaries—not autonomous financial transactions. | c06 — money |
+| **secretary** | organize appointments, calendar context, priorities, and administrative loose ends. scene identifier: mayorsecretary. | c07 — planning |
+| **popular girl / gossip** | help with social plans, conversation preparation, relationships, and remembering things the user chose to share. | c08 — social life |
+| **therapist** | offer reflection, emotional check-ins, and small grounding steps—not a replacement for professional care. | c09 — reflection |
+| **tinkerer** | help with projects, troubleshooting, creative experiments, and making the next build step concrete. | c10 — making |
 
-Jojo/Stella, Charmy, Spike, and Mae belong to earlier avatar/companion iterations. BMO and Niko are newer asset imports, not completed companions. Each has its own onboarding sprint in the [roadmap](ROADMAP.md); their future duties and redistribution rights must be settled before publication.
+jojo/stella, charmy, spike, and mae belong to earlier avatar/companion iterations. bmo and niko are newer asset imports, not completed companions. each has its own onboarding sprint in the [roadmap](ROADMAP.md); their future duties and redistribution rights must be settled before publication.
 
-## One crew, individual characters
+## one crew, individual characters
 
-The hive-mind design shares relevant plans, routines, and world context **without flattening everyone into the same personality**.
+the hive-mind design shares relevant plans, routines, and world context **without flattening everyone into the same personality**.
 
-- **Obsidian:** editable Markdown souls, shared crew context, and user-controlled memory.
-- **Character identity:** separate voice, role, memories, and conversational behavior.
-- **Ollama:** local model serving, with explicit model selection and endpoint health checks.
-- **Hermes:** agent and tool orchestration, kept separate from ordinary dialogue generation; consequential tool actions require scoped permission.
-- **Local model pipeline:** private configuration currently uses the alias `qwen3.8-hermes:latest`, referred to here as the Qwen 3.8 profile. The model sprint verifies its actual weights, provider, and capabilities; this repository does not bundle model weights.
-- **Grounded initiative:** follow up on real conversation, remembered plans, actual time, known scene state, or tool results.
-- **Continuity:** after an absence, ask what happened rather than assuming an old task is still pending.
+- **obsidian:** editable markdown souls, shared crew context, and user-controlled memory.
+- **character identity:** separate voice, role, memories, and conversational behavior.
+- **ollama:** local model serving, with explicit model selection and endpoint health checks.
+- **hermes:** agent and tool orchestration, kept separate from ordinary dialogue generation; consequential tool actions require scoped permission.
+- **local model pipeline:** private configuration currently uses the alias `qwen3.8-hermes:latest`, referred to here as the qwen 3.8 profile. the model sprint verifies its actual weights, provider, and capabilities; this repository does not bundle model weights.
+- **grounded initiative:** follow up on real conversation, remembered plans, actual time, known scene state, or tool results.
+- **continuity:** after an absence, ask what happened rather than assuming an old task is still pending.
 
-The full Obsidian, Ollama/Qwen, and Hermes integration is private-development work and a public-port target—not a bundled, verified end-to-end feature of this public snapshot. The public chat core can connect to a configured local OpenAI-compatible endpoint.
+the full obsidian, ollama/qwen, and hermes integration is private-development work and a public-port target—not a bundled, verified end-to-end feature of this public snapshot. the public chat core can connect to a configured local openai-compatible endpoint.
 
-## Engineering epics
+## engineering epics
 
-| Epic | What it brings together |
+| epic | what it brings together |
 |---|---|
-| E01 — Mind & memory | Ollama/Qwen inference, Hermes orchestration, Obsidian, individual souls, shared context, retrieval, and grounded initiative. |
-| E02 — Embodiment | Locomotion, eye tracking, blinking, expressions, living motion, IK, poses, perches, outfits, and camera framing. |
-| E03 — Voice & listening | TTS, STT, voice cloning, lip sync, audio-device recovery, and natural multi-message cadence. |
-| E04 — Character vertical slices | One dedicated sprint per character, built on common systems while preserving identity and duties. |
-| E05 — Daily-life workflows | Routines, food, care, planning, projects, and user-approved integrations. |
-| E06 — Trust & delivery | Privacy, permissions, asset rights, regression tests, demonstrations, and honest public documentation. |
+| e01 — mind & memory | ollama/qwen inference, hermes orchestration, obsidian, individual souls, shared context, retrieval, and grounded initiative. |
+| e02 — embodiment | locomotion, eye tracking, blinking, expressions, living motion, ik, poses, perches, outfits, and camera framing. |
+| e03 — voice & listening | tts, stt, voice cloning, lip sync, audio-device recovery, and natural multi-message cadence. |
+| e04 — character vertical slices | one dedicated sprint per character, built on common systems while preserving identity and duties. |
+| e05 — daily-life workflows | routines, food, care, planning, projects, and user-approved integrations. |
+| e06 — trust & delivery | privacy, permissions, asset rights, regression tests, demonstrations, and honest public documentation. |
 
-The [sprint backlog](ROADMAP.md) breaks these epics into small deliverables with acceptance criteria. Sprint labels are work packages, not dated commitments or completed milestones.
+the [sprint backlog](ROADMAP.md) breaks these epics into small deliverables with acceptance criteria. sprint labels are work packages, not dated commitments or completed milestones.
 
-## What is public today?
+## what is public today?
 
-This is a curated **source edition**, not the latest private environment.
+this is a curated **source edition**, not the latest private environment.
 
-The public baseline contains local AI integration, companion memory, VRM interaction, poses and camera controls, Animalese/optional TTS, and world-space dialogue. The latest selective port adds microphone pre-roll and lifecycle/device handling, transcript filtering, and head-following, camera-relative speech bubbles.
+the public baseline contains local ai integration, companion memory, vrm interaction, poses and camera controls, animalese/optional tts, and world-space dialogue. the latest selective port adds microphone pre-roll and lifecycle/device handling, transcript filtering, and head-following, camera-relative speech bubbles.
 
-The larger character, Obsidian, Qwen, voice-cloning, and animation roadmap is being ported incrementally. Personal avatars, recordings, conversation logs, workbook data, credentials, private history, and restricted assets are excluded. Import your own VRM and configure your own services.
+the larger character, obsidian, qwen, voice-cloning, and animation roadmap is being ported incrementally. personal avatars, recordings, conversation logs, workbook data, credentials, private history, and restricted assets are excluded. import your own vrm and configure your own services.
 
-## Run and verify
+## run and verify
 
-1. Open with **Unity 6000.5.4f1** and allow Package Manager to restore dependencies.
-2. Open a scene under `Assets/Scenes` and enter Play Mode.
-3. Import your VRM and configure the chat, STT, and voice services you use. Local endpoints run separately.
+1. open with **unity 6000.5.4f1** and allow package manager to restore dependencies.
+2. open a scene under [assets/scenes](Assets/Scenes) and enter play mode.
+3. import your vrm and configure the chat, stt, and voice services you use. local endpoints run separately.
 
-The latest code port compiled in an isolated Unity batch run and passed core pose discovery: **18 poses without private content**. Public runtime microphone quality and visible bubble layout still need verification. Transcript filtering is heuristic and may reject legitimate short utterances. Compilation is not proof that every roadmap feature works.
+the latest code port compiled in an isolated unity batch run and passed core pose discovery: **18 poses without private content**. public runtime microphone quality and visible bubble layout still need verification. transcript filtering is heuristic and may reject legitimate short utterances. compilation is not proof that every roadmap feature works.
 
-## Earlier iterations
+## earlier iterations
 
-- [Unity/C# companion systems](Assets/Scripts)
-- [Three.js/TypeScript browser world](examples/browser-world)
-- [GameCube dialogue prototype](examples/gamecube-dialogue)
+- [unity/c# companion systems](Assets/Scripts)
+- [three.js/typescript browser world](examples/browser-world)
+- [gamecube dialogue prototype](examples/gamecube-dialogue)
 
-[Project evolution case study](https://github.com/lenovo-jojo/portfolio/blob/main/case-studies/companion-evolution.md) · [Portfolio and delivery evidence](https://github.com/lenovo-jojo/portfolio)
+[project evolution case study](https://github.com/lenovo-jojo/portfolio/blob/main/case-studies/companion-evolution.md) · [portfolio and delivery evidence](https://github.com/lenovo-jojo/portfolio)
 
-An actively developed prototype, with the goal of making useful companionship feel at home.
+an actively developed prototype, with the goal of making useful companionship feel at home.
