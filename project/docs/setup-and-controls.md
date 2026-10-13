@@ -6,11 +6,11 @@ this guide separates the current development project from the downloadable publi
 
 current development source includes character-specific chat configuration, local qwen speech, and hermes tool orchestration. its declared defaults include `dolphin3:latest` for general chat, `qwen3.8-hermes:latest` for jojo, and a local speech endpoint at `http://127.0.0.1:8020`. these are source defaults, not a reading of saved user settings or proof that a service is running. model aliases do not establish the underlying model weights.
 
-the public source edition has not received that complete configuration or integration. its chat default is `llava`; the newer qwen/hermes work remains a selective-port target in the [roadmap](../ROADMAP.md). changing the model name alone would not bring over the missing integration.
+the public source edition has not received that complete configuration or integration. its chat default is `llava`; the newer qwen/hermes work remains a selective-port target in the [roadmap](../../ROADMAP.md). changing the model name alone would not bring over the missing integration.
 
 ## open the public source edition
 
-1. clone or download this repository and open its project folder in unity hub.
+1. clone or download this repository and open its `project/` folder in unity hub.
 2. use unity `6000.5.4f1`, as recorded in the [project version](../ProjectSettings/ProjectVersion.txt).
 3. allow package manager to restore dependencies. the [manifest](../Packages/manifest.json) includes univrm `0.131.2`, universal render pipeline `17.5.0`, and input system `1.19.0`.
 4. start with the [sample scene](../Assets/Scenes/SampleScene.unity) and enter play mode. personal avatars are excluded; supply a vrm you have permission to use through the settings/import control.

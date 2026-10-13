@@ -62,19 +62,19 @@ the larger character, obsidian, qwen, voice-cloning, and animation roadmap is be
 
 ## run and verify
 
-[setup and controls](docs/setup-and-controls.md) covers the downloadable public edition and explains how it differs from current development.
+[setup and controls](project/docs/setup-and-controls.md) covers the downloadable public edition and explains how it differs from current development.
 
-1. open with **unity 6000.5.4f1** and allow package manager to restore dependencies.
-2. open a scene under [assets/scenes](Assets/Scenes) and enter play mode.
+1. open the `project/` folder in unity hub with **unity 6000.5.4f1** and allow package manager to restore dependencies.
+2. open a scene under [assets/scenes](project/Assets/Scenes) and enter play mode.
 3. import your vrm and configure the chat, stt, and voice services you use. local endpoints run separately.
 
 the latest code port compiled in an isolated unity batch run and passed core pose discovery: **18 poses without private content**. public runtime microphone quality and visible bubble layout still need verification. transcript filtering is heuristic and may reject legitimate short utterances. compilation is not proof that every roadmap feature works.
 
 ## earlier iterations
 
-- [unity/c# companion systems](Assets/Scripts)
-- [three.js/typescript browser world](examples/browser-world)
-- [gamecube dialogue prototype](examples/gamecube-dialogue)
+- [unity/c# companion systems](project/Assets/Scripts)
+- [three.js/typescript browser world](project/examples/browser-world)
+- [gamecube dialogue prototype](project/examples/gamecube-dialogue)
 
 [project evolution case study](https://github.com/lenovo-jojo/portfolio/blob/main/case-studies/companion-evolution.md) · [portfolio and delivery evidence](https://github.com/lenovo-jojo/portfolio)
 
