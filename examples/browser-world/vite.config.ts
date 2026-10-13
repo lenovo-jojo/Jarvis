@@ -39,6 +39,12 @@ function sceneEditSavePlugin(): Plugin {
                 throw new Error("scene edit payload must contain a sceneEdits array");
               }
 
+              // Finish validation before starting any file writes.
+              if (parsed?.editorAssets !== undefined &&
+                  (!Array.isArray(parsed.editorAssets?.assets) || !Array.isArray(parsed.editorAssets?.instances))) {
+                throw new Error("editorAssets must contain assets and instances arrays");
+              }
+
               const target = resolve(
                 process.cwd(),
                 "src/data/scene-edits.json"
@@ -48,10 +54,7 @@ function sceneEditSavePlugin(): Plugin {
                 writeFile(target, JSON.stringify(sceneEdits, null, 2) + "\n", "utf8"),
               ];
 
-              if (parsed?.editorAssets) {
-                if (!Array.isArray(parsed.editorAssets.assets) || !Array.isArray(parsed.editorAssets.instances)) {
-                  throw new Error("editorAssets must contain assets and instances arrays");
-                }
+              if (parsed?.editorAssets !== undefined) {
                 writes.push(
                   writeFile(
                     resolve(process.cwd(), "src/data/editor-assets.json"),
