@@ -1,10 +1,10 @@
 # critter comforts
 
-> I just want a pet robot lowkey.
+> i just want a pet robot lowkey.
 
-A cozy, local-first jarvis project: characters with a home inside the computer, a window into your world, and different ways to help you keep the thread. Part virtual companion, part daily-life assistant, part dollhouse operating system.
+a cozy, local-first jarvis project: characters with a home inside the computer, a window into your world, and different ways to help you keep the thread. part virtual companion, part daily-life assistant, part dollhouse operating system.
 
-Built in **Unity/C#**, with VRM avatars and a roadmap spanning locomotion, eye tracking, IK animation, TTS, STT, voice cloning, and an Obsidian-backed character hive mind using **Ollama, Qwen, and Hermes**. Developed with AI assistance.
+built in **unity/c#**, with vrm avatars and a roadmap spanning locomotion, eye tracking, ik animation, tts, stt, voice cloning, and an obsidian-backed character hive mind using **ollama, qwen, and hermes**. developed with ai assistance.
 
 ## The cast
 
