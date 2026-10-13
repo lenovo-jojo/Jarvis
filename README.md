@@ -15,7 +15,7 @@ these are the characters' intended responsibilities, not claims that every liste
 | **p.a.** | personal assistant and companion. hold unresolved threads, help with to-dos and check-ins, follow up on plans, and support morning startup and wind-down routines. | c01 — continuity |
 | **chef** | make eating easier: meal ideas, pantry context, groceries, cooking steps, and useful follow-ups about food. | c02 — food |
 | **coach** | help turn movement intentions into manageable exercise, stretching, recovery, and habit check-ins. | c03 — movement |
-| **librarian** | organize notes, research, reading, and remembered ideas; retrieve useful context with source links. | c04 — knowledge |
+| **librarian** | organize television, reading, and remembered ideas; retrieve useful context with source links. | c04 — entertainment |
 | **nurse** | support user-entered care routines, hydration, reminders, and wellness logs—not diagnosis or medical authority. | c05 — care |
 | **banker** | help understand budgets, expenses, and savings goals through read-only summaries—not autonomous financial transactions. | c06 — money |
 | **secretary** | organize appointments, calendar context, priorities, and administrative loose ends. scene identifier: mayorsecretary. | c07 — planning |
