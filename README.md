@@ -4,6 +4,8 @@
 
 a cozy, local-first jarvis project: characters with a home inside the computer, a window into your world, and different ways to help you keep the thread. part virtual companion, part daily-life assistant, part dollhouse operating system.
 
+<img width="882" height="560" alt="Screenshot 2026-10-14 at 3 40 26 PM" src="https://github.com/user-attachments/assets/21c1c6fd-7aea-4d25-a9bd-d9173eb94378" />
+
 built in **unity/c#**, with vrm avatars and a roadmap spanning locomotion, eye tracking, ik animation, tts, stt, voice cloning, and an obsidian-backed character hive mind using **ollama, qwen, and hermes**. developed with ai assistance.
 
 ## the cast
