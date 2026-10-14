@@ -1,26 +1,26 @@
-# VRM Mode Setup (Jarvis)
+# vrm mode setup (jarvis)
 
-Jarvis now uses compile-time symbols so only one VRM backend is compiled at a time:
+jarvis now uses compile-time symbols so only one vrm backend is compiled at a time:
 
 - `JARVIS_VRM10` (recommended, default target)
 - `JARVIS_VRM0` (compile-safe compatibility mode)
-- no symbol (safe no-VRM fallback backend)
+- no symbol (safe no-vrm fallback backend)
 
-## How to switch mode
+## how to switch mode
 
-1. Open **Project Settings > Player > Other Settings > Scripting Define Symbols**.
-2. Add exactly one symbol:
-   - `JARVIS_VRM10` for VRM 1.0 projects.
-   - `JARVIS_VRM0` for VRM 0.x compatibility mode.
-3. If both are set, Jarvis deterministically prefers `JARVIS_VRM10` and logs a warning.
+1. open **project settings > player > other settings > scripting define symbols**.
+2. add exactly one symbol:
+   - `JARVIS_VRM10` for vrm 1.0 projects.
+   - `JARVIS_VRM0` for vrm 0.x compatibility mode.
+3. if both are set, jarvis deterministically prefers `JARVIS_VRM10` and logs a warning.
 
-## Assembly behavior
+## assembly behavior
 
 - `AICompanion` (base runtime) now contains only the `VRMService` facade and safe fallback backends.
-- `AICompanion.VRM10` is compiled only when `JARVIS_VRM10` is defined and contains VRM 1.0 API usage.
-- This prevents unresolved VRM namespaces/types from compiling in unsupported setups.
+- `AICompanion.VRM10` is compiled only when `JARVIS_VRM10` is defined and contains vrm 1.0 api usage.
+- this prevents unresolved vrm namespaces/types from compiling in unsupported setups.
 
-## Package cache note
+## package cache note
 
-Do **not** edit files under `Library/PackageCache`.
-Use symbols/package versions to control which backend compiles instead.
+do **not** edit files under `Library/PackageCache`.
+use symbols/package versions to control which backend compiles instead.

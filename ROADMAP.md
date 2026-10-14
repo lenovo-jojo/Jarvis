@@ -1,283 +1,283 @@
-# JARVIS / Critter Comforts — Epics & Sprints
+# jarvis / critter comforts — epics & sprints
 
-A cozy companion world built around dependable shared systems and distinct characters.
+a cozy companion world built around dependable shared systems and distinct characters.
 
-This is a **proposed backlog**, not a list of finished features. Sprint IDs describe bounded work packages, not calendar dates. Private prototype work is evidence of exploration; it is not automatically a verified public feature.
+this is a **proposed backlog**, not a list of finished features. sprint ids describe bounded work packages, not calendar dates. private prototype work is evidence of exploration; it is not automatically a verified public feature.
 
-## Delivery rules
+## delivery rules
 
-- Build and verify one small slice at a time.
-- Preserve identity, voice, settings, perches, and working animation systems.
-- Separate each character's memories from shared crew context.
-- Ground proactive dialogue in available context; imaginative play belongs where the conversation calls for it.
-- Prefer positive behavioral guidance and inspect the final prompt when identity drifts.
-- Keep personal data and restricted assets out of public source.
-- Make consequential external actions visible, permissioned, and reversible.
-- Test visible and audible behavior; do not equate compilation with completion.
+- build and verify one small slice at a time.
+- preserve identity, voice, settings, perches, and working animation systems.
+- separate each character's memories from shared crew context.
+- ground proactive dialogue in available context; imaginative play belongs where the conversation calls for it.
+- prefer positive behavioral guidance and inspect the final prompt when identity drifts.
+- keep personal data and restricted assets out of public source.
+- make consequential external actions visible, permissioned, and reversible.
+- test visible and audible behavior; do not equate compilation with completion.
 
-## Epic map
+## epic map
 
-| ID | Epic | Shared foundation sprints | Character delivery |
+| id | epic | shared foundation sprints | character delivery |
 |---|---|---|---|
-| E01 | Mind & memory | F01 model pipeline; F02 Obsidian hive mind | C01–C16 |
-| E02 | Embodiment | F03 locomotion/gaze; F04 IK/expression | C01–C16 |
-| E03 | Voice & listening | F05 speech pipeline | C01–C16 |
-| E04 | Character vertical slices | Shared character contract below | One sprint per character |
-| E05 | Daily-life workflows | F06 routines and approved tools | C01–C10 |
-| E06 | Trust & delivery | F07 safety and public release | Every sprint |
+| e01 | mind & memory | f01 model pipeline; f02 obsidian hive mind | c01–c16 |
+| e02 | embodiment | f03 locomotion/gaze; f04 ik/expression | c01–c16 |
+| e03 | voice & listening | f05 speech pipeline | c01–c16 |
+| e04 | character vertical slices | shared character contract below | one sprint per character |
+| e05 | daily-life workflows | f06 routines and approved tools | c01–c10 |
+| e06 | trust & delivery | f07 safety and public release | every sprint |
 
-## Foundation sprints
+## foundation sprints
 
-### F01 — Ollama, Qwen 3.8 & Hermes pipeline
+### f01 — ollama, qwen 3.8 & hermes pipeline
 
-**Epic:** E01. **Outcome:** a measured, configurable local conversation pipeline.
+**epic:** e01. **outcome:** a measured, configurable local conversation pipeline.
 
-- Document the division of responsibility: Ollama serves local models; Qwen supplies the configured inference profile; Hermes handles agent/tool orchestration; Obsidian supplies editable identity and memory context.
-- Verify Ollama endpoint health and installed models; make local service requirements reproducible without bundling weights.
-- Keep Hermes tool execution distinct from character dialogue. Expose enabled tools, timeouts, permissions, cancellation, and results; leave external writes opt-in.
-- Inspect the private `qwen3.8-hermes:latest` alias and document the actual model weights, provider, context limits, and license. The alias alone is not evidence of an official model release.
-- Make the selected model and provider visible; distinguish local inference from optional cloud fallback.
-- Measure prompt construction, retrieval, model generation, validation/retry, and first-response latency.
-- Keep world context compact and relevant; expose the exact final prompt for diagnosis.
-- Give rejected responses a small, specific redirect rather than a growing pile of prohibitions.
+- document the division of responsibility: ollama serves local models; qwen supplies the configured inference profile; hermes handles agent/tool orchestration; obsidian supplies editable identity and memory context.
+- verify ollama endpoint health and installed models; make local service requirements reproducible without bundling weights.
+- keep hermes tool execution distinct from character dialogue. expose enabled tools, timeouts, permissions, cancellation, and results; leave external writes opt-in.
+- inspect the private `qwen3.8-hermes:latest` alias and document the actual model weights, provider, context limits, and license. the alias alone is not evidence of an official model release.
+- make the selected model and provider visible; distinguish local inference from optional cloud fallback.
+- measure prompt construction, retrieval, model generation, validation/retry, and first-response latency.
+- keep world context compact and relevant; expose the exact final prompt for diagnosis.
+- give rejected responses a small, specific redirect rather than a growing pile of prohibitions.
 
-**Acceptance:** a reproducible model configuration and timing trace; no silent provider swap; short and long conversations preserve the selected character identity.
+**acceptance:** a reproducible model configuration and timing trace; no silent provider swap; short and long conversations preserve the selected character identity.
 
-### F02 — Obsidian character hive mind
+### f02 — obsidian character hive mind
 
-**Epic:** E01. **Depends on:** F01. **Outcome:** shared continuity without shared-personality contamination.
+**epic:** e01. **depends on:** f01. **outcome:** shared continuity without shared-personality contamination.
 
-- Use an editable Markdown vault for crew context and separate character souls.
-- Separate shared plans/routines from character-specific memory; preserve provenance and timestamps.
-- Retrieve only relevant context and treat old plans as context, not commands.
-- Let the user inspect, edit, exclude, export, and delete memories.
-- Reconcile completed events, changed priorities, and time away before generating follow-ups.
-- Keep personal vault contents local; publish only synthetic examples.
+- use an editable markdown vault for crew context and separate character souls.
+- separate shared plans/routines from character-specific memory; preserve provenance and timestamps.
+- retrieve only relevant context and treat old plans as context, not commands.
+- let the user inspect, edit, exclude, export, and delete memories.
+- reconcile completed events, changed priorities, and time away before generating follow-ups.
+- keep personal vault contents local; publish only synthetic examples.
 
-**Acceptance:** a synthetic plan can be shared across roles while each keeps its own identity; edits/deletions affect later retrieval; an absence test produces a status question instead of replaying stale instructions.
+**acceptance:** a synthetic plan can be shared across roles while each keeps its own identity; edits/deletions affect later retrieval; an absence test produces a status question instead of replaying stale instructions.
 
-### F03 — Locomotion & eye tracking
+### f03 — locomotion & eye tracking
 
-**Epic:** E02. **Outcome:** stable navigation and readable attention.
+**epic:** e02. **outcome:** stable navigation and readable attention.
 
-- Verify forward/backward movement, camera navigation, character locomotion, and navigation recovery.
-- Support explicit attention/whistle commands without moving authored perches.
-- Use UniVRM look-at integration with bounded conversational gaze offsets.
-- Add subtle listening, thinking, and speaking eye motion without near-camera jitter.
-- Keep continuous body look-at optional; preserve the stable eyes-only mode.
-- Make face, waist-up, and full-body frames follow current poses and perches.
+- verify forward/backward movement, camera navigation, character locomotion, and navigation recovery.
+- support explicit attention/whistle commands without moving authored perches.
+- use univrm look-at integration with bounded conversational gaze offsets.
+- add subtle listening, thinking, and speaking eye motion without near-camera jitter.
+- keep continuous body look-at optional; preserve the stable eyes-only mode.
+- make face, waist-up, and full-body frames follow current poses and perches.
 
-**Acceptance:** navigation never spins on backward input; sitting and standing retain authored positions; gaze and camera framing work at near/far distances without persistent jitter.
+**acceptance:** navigation never spins on backward input; sitting and standing retain authored positions; gaze and camera framing work at near/far distances without persistent jitter.
 
-### F04 — IK animation, expressions & living motion
+### f04 — ik animation, expressions & living motion
 
-**Epic:** E02. **Depends on:** F03. **Outcome:** expressive motion with clear ownership of bones.
+**epic:** e02. **depends on:** f03. **outcome:** expressive motion with clear ownership of bones.
 
-- Layer living motion on top of base poses with a documented update order.
-- Separate foot/floor, hand/contact, and gesture solvers.
-- Use short pose-keyframe tweens where appropriate; limit gestures to their intended limb.
-- Preserve hand/prop contact and natural wrist/elbow posture across transitions.
-- Blend thinking and speech emotions gently; hold emotions before fading.
-- Keep idle mouth closure, blinking, ear motion, hair/garment collision, and iris highlights independently reversible.
-- Preserve eyelid occlusion when testing any iris-highlight shader.
+- layer living motion on top of base poses with a documented update order.
+- separate foot/floor, hand/contact, and gesture solvers.
+- use short pose-keyframe tweens where appropriate; limit gestures to their intended limb.
+- preserve hand/prop contact and natural wrist/elbow posture across transitions.
+- blend thinking and speech emotions gently; hold emotions before fading.
+- keep idle mouth closure, blinking, ear motion, hair/garment collision, and iris highlights independently reversible.
+- preserve eyelid occlusion when testing any iris-highlight shader.
 
-**Acceptance:** seated/standing cycles, gestures, and contact tests preserve the root and unrelated limbs; blink, lip sync, gaze, and emotions coexist; no persistent jitter or prop disappearance during a contact phase.
+**acceptance:** seated/standing cycles, gestures, and contact tests preserve the root and unrelated limbs; blink, lip sync, gaze, and emotions coexist; no persistent jitter or prop disappearance during a contact phase.
 
-### F05 — TTS, STT, voice cloning & speech cadence
+### f05 — tts, stt, voice cloning & speech cadence
 
-**Epic:** E03. **Outcome:** responsive, intelligible two-way conversation.
+**epic:** e03. **outcome:** responsive, intelligible two-way conversation.
 
-- Configure local TTS/STT providers with explicit optional fallbacks.
-- Retain speech beginnings through pre-roll and ring-buffer capture.
-- Measure transcription reliability; test filtering against legitimate short utterances as well as phantom transcripts.
-- Allow per-character voices and consent-based voice cloning using user-supplied recordings.
-- Keep clone recordings and embeddings private; provide removal controls.
-- Normalize pronunciation for TTS without changing displayed character spelling.
-- Test lip sync and Animalese listening reactions alongside speech.
-- Support output-device handoffs without pitch drift or losing speech.
-- Prefer one bubble when enough; target roughly 8–20 words per message and up to about 60 words per complete response, split at natural boundaries.
+- configure local tts/stt providers with explicit optional fallbacks.
+- retain speech beginnings through pre-roll and ring-buffer capture.
+- measure transcription reliability; test filtering against legitimate short utterances as well as phantom transcripts.
+- allow per-character voices and consent-based voice cloning using user-supplied recordings.
+- keep clone recordings and embeddings private; provide removal controls.
+- normalize pronunciation for tts without changing displayed character spelling.
+- test lip sync and animalese listening reactions alongside speech.
+- support output-device handoffs without pitch drift or losing speech.
+- prefer one bubble when enough; target roughly 8–20 words per message and up to about 60 words per complete response, split at natural boundaries.
 
-**Acceptance:** a recorded test set retains first words; voice changes affect the intended character; device switching survives active speech; every sequenced bubble plays in order; cloning requires consent and private storage.
+**acceptance:** a recorded test set retains first words; voice changes affect the intended character; device switching survives active speech; every sequenced bubble plays in order; cloning requires consent and private storage.
 
-### F06 — Routines & user-approved tools
+### f06 — routines & user-approved tools
 
-**Epic:** E05. **Depends on:** F02. **Outcome:** practical assistance grounded in the user's actual life.
+**epic:** e05. **depends on:** f02. **outcome:** practical assistance grounded in the user's actual life.
 
-- Represent morning startup, check-in, wind-down, and user-configured recurring routines.
-- Use current time, energy, chosen goals, and known completion state.
-- Offer done, snooze, not today, easier step, and why-this controls.
-- Start calendar, notes, wellness, and finance integrations read-only.
-- Require specific permission before calendar edits, messages, purchases, or other consequential external actions.
+- represent morning startup, check-in, wind-down, and user-configured recurring routines.
+- use current time, energy, chosen goals, and known completion state.
+- offer done, snooze, not today, easier step, and why-this controls.
+- start calendar, notes, wellness, and finance integrations read-only.
+- require specific permission before calendar edits, messages, purchases, or other consequential external actions.
 
-**Acceptance:** changed intentions override stale plans; reminders can be dismissed; no unsolicited external writes; characters ask when relevant context is missing.
+**acceptance:** changed intentions override stale plans; reminders can be dismissed; no unsolicited external writes; characters ask when relevant context is missing.
 
-### F07 — Safety, regression & public delivery
+### f07 — safety, regression & public delivery
 
-**Epic:** E06. **Outcome:** a portfolio edition that is safe and accurately demonstrated.
+**epic:** e06. **outcome:** a portfolio edition that is safe and accurately demonstrated.
 
-- Maintain separate public and private repositories; selectively port reviewed changes.
-- Check for secrets, personal logs/recordings, private paths, restricted content, and asset licenses.
-- Keep external tools opt-in and provide microphone/camera controls.
-- Verify compile, core pose discovery, scene playback, audible speech, persistence, and device handoff separately.
-- Record short demonstrations with non-sensitive data.
-- Label shipped, private-prototype, experimental, and planned work accurately.
+- maintain separate public and private repositories; selectively port reviewed changes.
+- check for secrets, personal logs/recordings, private paths, restricted content, and asset licenses.
+- keep external tools opt-in and provide microphone/camera controls.
+- verify compile, core pose discovery, scene playback, audible speech, persistence, and device handoff separately.
+- record short demonstrations with non-sensitive data.
+- label shipped, private-prototype, experimental, and planned work accurately.
 
-**Acceptance:** each publication has an exact file scope, reproducible checks, documented limitations, and no private payload; a demo does not imply untested features are complete.
+**acceptance:** each publication has an exact file scope, reproducible checks, documented limitations, and no private payload; a demo does not imply untested features are complete.
 
-## Shared character-sprint contract
+## shared character-sprint contract
 
-Each C-series sprint is **one character's vertical slice**, not a fork of the underlying systems. Characters use shared locomotion, eye tracking, IK/expression, TTS/STT, settings, memory, and framing as applicable.
+each c-series sprint is **one character's vertical slice**, not a fork of the underlying systems. characters use shared locomotion, eye tracking, ik/expression, tts/stt, settings, memory, and framing as applicable.
 
-Every character sprint must verify:
+every character sprint must verify:
 
-1. Correct soul/identity and task scope, with no contamination from another role.
-2. Correct scene/perch and stable seated/standing pose.
-3. Correct voice and working input/output; clone data is optional and private.
-4. Listening, thinking, speaking, and idle reactions.
-5. Grounded initiative and a meaningful return-session follow-up.
-6. Isolated memory plus relevant, attributed crew context.
-7. HUD, outfit, camera-frame, and speech-bubble behavior.
-8. A short role-specific test and a recorded demonstration before marking complete.
+1. correct soul/identity and task scope, with no contamination from another role.
+2. correct scene/perch and stable seated/standing pose.
+3. correct voice and working input/output; clone data is optional and private.
+4. listening, thinking, speaking, and idle reactions.
+5. grounded initiative and a meaningful return-session follow-up.
+6. isolated memory plus relevant, attributed crew context.
+7. hud, outfit, camera-frame, and speech-bubble behavior.
+8. a short role-specific test and a recorded demonstration before marking complete.
 
-## Character sprints
+## character sprints
 
-All duties below are proposed product responsibilities. Asset presence alone does not satisfy the character contract.
+all duties below are proposed product responsibilities. asset presence alone does not satisfy the character contract.
 
-### C01 — P.A.: continuity
+### c01 — p.a.: continuity
 
-**Epics:** E01, E03, E04, E05. **Duty:** personal assistant and companion who keeps the thread.
+**epics:** e01, e03, e04, e05. **duty:** personal assistant and companion who keeps the thread.
 
-Track to-dos, unresolved conversations, check-in questions, morning startup, wind-down, and space-care routines. Prioritize useful follow-ups over generic ambient chatter. Support user-configured breaks without judgment or pressure.
+track to-dos, unresolved conversations, check-in questions, morning startup, wind-down, and space-care routines. prioritize useful follow-ups over generic ambient chatter. support user-configured breaks without judgment or pressure.
 
-**Acceptance:** after time away, P.A. asks about the outcome of the relevant plan; current priorities override old ones; a check-in moves forward without repeating the last message.
+**acceptance:** after time away, p.a. asks about the outcome of the relevant plan; current priorities override old ones; a check-in moves forward without repeating the last message.
 
-### C02 — Chef: food
+### c02 — chef: food
 
-**Epics:** E03, E04, E05. **Duty:** help the user eat and make food decisions.
+**epics:** e03, e04, e05. **duty:** help the user eat and make food decisions.
 
-Use known pantry/grocery context, preferences, available effort, meal ideas, and cooking steps. Ask useful questions rather than inventing supplies or in-game shops.
+use known pantry/grocery context, preferences, available effort, meal ideas, and cooking steps. ask useful questions rather than inventing supplies or in-game shops.
 
-**Acceptance:** a low-energy food request produces an achievable next step; an unfinished meal plan gets a relevant follow-up; conversation remains Chef's own voice.
+**acceptance:** a low-energy food request produces an achievable next step; an unfinished meal plan gets a relevant follow-up; conversation remains chef's own voice.
 
-### C03 — Coach: movement
+### c03 — coach: movement
 
-**Epics:** E02, E04, E05. **Duty:** support manageable activity and recovery.
+**epics:** e02, e04, e05. **duty:** support manageable activity and recovery.
 
-Offer user-chosen exercise, stretching, movement breaks, and habit tracking. Adapt to stated limitations and energy.
+offer user-chosen exercise, stretching, movement breaks, and habit tracking. adapt to stated limitations and energy.
 
-**Acceptance:** a movement goal becomes an appropriate small action; demonstrated poses remain stable; the user can rest or decline without a nagging loop.
+**acceptance:** a movement goal becomes an appropriate small action; demonstrated poses remain stable; the user can rest or decline without a nagging loop.
 
-### C04 — Librarian: knowledge
+### c04 — librarian: knowledge
 
-**Epics:** E01, E04, E05. **Duty:** help organize, retrieve, and understand information.
+**epics:** e01, e04, e05. **duty:** help organize, retrieve, and understand information.
 
-Support notes, reading lists, research questions, sources, and remembered ideas.
+support notes, reading lists, research questions, sources, and remembered ideas.
 
-**Acceptance:** retrieve a synthetic saved idea with provenance; distinguish memory from external research; explain when a source is unavailable instead of inventing it.
+**acceptance:** retrieve a synthetic saved idea with provenance; distinguish memory from external research; explain when a source is unavailable instead of inventing it.
 
-### C05 — Nurse: care
+### c05 — nurse: care
 
-**Epics:** E01, E04, E05. **Duty:** support user-entered wellness routines.
+**epics:** e01, e04, e05. **duty:** support user-entered wellness routines.
 
-Track reminders, hydration, appointments, and user-recorded care context. Stay within supportive organization rather than diagnosis or treatment authority.
+track reminders, hydration, appointments, and user-recorded care context. stay within supportive organization rather than diagnosis or treatment authority.
 
-**Acceptance:** a reminder uses the user's actual schedule and can be snoozed; sensitive notes stay private; clinical uncertainty is made explicit.
+**acceptance:** a reminder uses the user's actual schedule and can be snoozed; sensitive notes stay private; clinical uncertainty is made explicit.
 
-### C06 — Banker: money
+### c06 — banker: money
 
-**Epics:** E01, E04, E05, E06. **Duty:** make financial information easier to understand.
+**epics:** e01, e04, e05, e06. **duty:** make financial information easier to understand.
 
-Start with manual imports or narrowly scoped read-only budgets, expenses, and savings goals.
+start with manual imports or narrowly scoped read-only budgets, expenses, and savings goals.
 
-**Acceptance:** summarize a synthetic budget accurately, with provenance; no autonomous trading, transfers, payments, or purchases.
+**acceptance:** summarize a synthetic budget accurately, with provenance; no autonomous trading, transfers, payments, or purchases.
 
-### C07 — Secretary: planning
+### c07 — secretary: planning
 
-**Epics:** E01, E04, E05. **Duty:** calendar and administrative continuity.
+**epics:** e01, e04, e05. **duty:** calendar and administrative continuity.
 
-Organize appointments, priorities, scheduling context, and unfinished administrative tasks. The authored scene currently uses the MayorSecretary identifier; this sprint does not assume a separate Mayor character.
+organize appointments, priorities, scheduling context, and unfinished administrative tasks. the authored scene currently uses the mayorsecretary identifier; this sprint does not assume a separate mayor character.
 
-**Acceptance:** identify a scheduling conflict from provided data; propose a next step; request permission before writing an event or sending a message.
+**acceptance:** identify a scheduling conflict from provided data; propose a next step; request permission before writing an event or sending a message.
 
-### C08 — Popular Girl / Gossip: social life
+### c08 — popular girl / gossip: social life
 
-**Epics:** E01, E04, E05. **Duty:** social preparation and companionship.
+**epics:** e01, e04, e05. **duty:** social preparation and companionship.
 
-Help with plans, conversation starters, relationship context, and things the user chose to remember.
+help with plans, conversation starters, relationship context, and things the user chose to remember.
 
-**Acceptance:** use only known interpersonal context; ask about unknown details; avoid fabricated gossip or invented actions by other people.
+**acceptance:** use only known interpersonal context; ask about unknown details; avoid fabricated gossip or invented actions by other people.
 
-### C09 — Therapist: reflection
+### c09 — therapist: reflection
 
-**Epics:** E01, E03, E04, E05. **Duty:** supportive reflection and emotional check-ins.
+**epics:** e01, e03, e04, e05. **duty:** supportive reflection and emotional check-ins.
 
-Offer space to think, a small grounding step, or a useful question. Respect the user's preferred level of support; do not present the character as professional treatment.
+offer space to think, a small grounding step, or a useful question. respect the user's preferred level of support; do not present the character as professional treatment.
 
-**Acceptance:** a difficult moment gets a relevant, brief response rather than a generic greeting; follow-ups reflect actual context; sensitive memory remains user-controlled.
+**acceptance:** a difficult moment gets a relevant, brief response rather than a generic greeting; follow-ups reflect actual context; sensitive memory remains user-controlled.
 
-### C10 — Tinkerer: making
+### c10 — tinkerer: making
 
-**Epics:** E01, E04, E05, E06. **Duty:** projects and troubleshooting.
+**epics:** e01, e04, e05, e06. **duty:** projects and troubleshooting.
 
-Track build ideas, decisions, experiments, blockers, and next actions. Separate suggestions from verified tool results.
+track build ideas, decisions, experiments, blockers, and next actions. separate suggestions from verified tool results.
 
-**Acceptance:** a synthetic project resumes from its real blocker; an experiment has a testable outcome; tool writes require scoped approval.
+**acceptance:** a synthetic project resumes from its real blocker; an experiment has a testable outcome; tool writes require scoped approval.
 
-### C11 — Jojo / Stella: embodied avatar
+### c11 — jojo / stella: embodied avatar
 
-**Epics:** E02, E04. **Duty:** the earlier self-insert/avatar experience.
+**epics:** e02, e04. **duty:** the earlier self-insert/avatar experience.
 
-Clarify current identity and control ownership; test player movement, camera modes, poses, gaze, and avatar-to-companion boundaries.
+clarify current identity and control ownership; test player movement, camera modes, poses, gaze, and avatar-to-companion boundaries.
 
-**Acceptance:** player input and companion animation do not fight over the same transforms; the avatar's identity is unambiguous.
+**acceptance:** player input and companion animation do not fight over the same transforms; the avatar's identity is unambiguous.
 
-### C12 — Charmy: companion onboarding
+### c12 — charmy: companion onboarding
 
-**Epics:** E01, E03, E04. **Duty:** companionship; additional task specialization remains to be chosen.
+**epics:** e01, e03, e04. **duty:** companionship; additional task specialization remains to be chosen.
 
-Revalidate the earlier satellite character against the shared contract without borrowing P.A.'s or Chef's identity.
+revalidate the earlier satellite character against the shared contract without borrowing p.a.'s or chef's identity.
 
-**Acceptance:** independent soul, voice, memory, attention, and conversation; any specialized duty is explicitly defined before adding task tools.
+**acceptance:** independent soul, voice, memory, attention, and conversation; any specialized duty is explicitly defined before adding task tools.
 
-### C13 — Spike: companion onboarding
+### c13 — spike: companion onboarding
 
-**Epics:** E01, E03, E04. **Duty:** companionship; additional task specialization remains to be chosen.
+**epics:** e01, e03, e04. **duty:** companionship; additional task specialization remains to be chosen.
 
-Revalidate calling, arrival, posing, and conversation against the shared contract.
+revalidate calling, arrival, posing, and conversation against the shared contract.
 
-**Acceptance:** arrival does not corrupt position/pose, and memory and voice remain separate from Charmy and other characters.
+**acceptance:** arrival does not corrupt position/pose, and memory and voice remain separate from charmy and other characters.
 
-### C14 — Mae: guest-character slice
+### c14 — mae: guest-character slice
 
-**Epics:** E02, E03, E04, E06. **Duty:** guest companionship and dialogue exploration.
+**epics:** e02, e03, e04, e06. **duty:** guest companionship and dialogue exploration.
 
-Revalidate the earlier non-VRM guest path, walking/resting, and conversation. Document model and character rights before any asset publication.
+revalidate the earlier non-vrm guest path, walking/resting, and conversation. document model and character rights before any asset publication.
 
-**Acceptance:** locomotion and dialogue work in a demonstrated slice; unsupported VRM-only features fail gracefully; rights are recorded.
+**acceptance:** locomotion and dialogue work in a demonstrated slice; unsupported vrm-only features fail gracefully; rights are recorded.
 
-### C15 — BMO: imported-character onboarding
+### c15 — bmo: imported-character onboarding
 
-**Epics:** E02, E04, E06. **Duty:** not yet defined; the model is an import, not a finished assistant.
+**epics:** e02, e04, e06. **duty:** not yet defined; the model is an import, not a finished assistant.
 
-Inspect the GLB rig, animation support, materials, and expressive capabilities; define a role with the user before adding behavior.
+inspect the glb rig, animation support, materials, and expressive capabilities; define a role with the user before adding behavior.
 
-**Acceptance:** rights/provenance checked, a stable visible import, a documented rig plan, and an approved duty. No claim of completed conversation capability from import alone.
+**acceptance:** rights/provenance checked, a stable visible import, a documented rig plan, and an approved duty. no claim of completed conversation capability from import alone.
 
-### C16 — Niko: imported-character onboarding
+### c16 — niko: imported-character onboarding
 
-**Epics:** E02, E04, E06. **Duty:** not yet defined; the model is an import, not a finished assistant.
+**epics:** e02, e04, e06. **duty:** not yet defined; the model is an import, not a finished assistant.
 
-Inspect the FBX rig, textures, expressions, and locomotion compatibility; define role and voice separately from the source character's intellectual property.
+inspect the fbx rig, textures, expressions, and locomotion compatibility; define role and voice separately from the source character's intellectual property.
 
-**Acceptance:** rights/provenance checked, a stable visible import, a documented rig plan, and an approved duty.
+**acceptance:** rights/provenance checked, a stable visible import, a documented rig plan, and an approved duty.
 
-## Suggested execution order
+## suggested execution order
 
-1. F07 establishes the privacy and regression gates for every subsequent sprint.
-2. F01–F02 establish model identity and memory continuity.
-3. F03–F05 establish common embodiment and speech; F06 supplies routine context.
-4. C01 P.A. and C02 Chef validate the shared character contract.
-5. Apply that contract incrementally to C03–C10, then C11–C16 where rig compatibility and rights permit.
-6. Publish only verified, reviewed slices with non-sensitive demonstrations.
+1. f07 establishes the privacy and regression gates for every subsequent sprint.
+2. f01–f02 establish model identity and memory continuity.
+3. f03–f05 establish common embodiment and speech; f06 supplies routine context.
+4. c01 p.a. and c02 chef validate the shared character contract.
+5. apply that contract incrementally to c03–c10, then c11–c16 where rig compatibility and rights permit.
+6. publish only verified, reviewed slices with non-sensitive demonstrations.
 
-No character sprint is marked complete here. Completion requires its shared contract and role-specific acceptance test, not merely imported assets or working source compilation.
+no character sprint is marked complete here. completion requires its shared contract and role-specific acceptance test, not merely imported assets or working source compilation.
