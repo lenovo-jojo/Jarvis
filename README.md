@@ -1,4 +1,4 @@
-# critter comforts
+# critter comforts: cozy cove
 
 > i just want a pet robot lowkey.
 
